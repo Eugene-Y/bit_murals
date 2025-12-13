@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.autoSave": "afterDelay"
+	},
+	"launch": {
+		"configurations": [
+			{
+				"type": "chrome",
+				"name": "http://file:///D:/do/graphics/2021/bit_murals_ghp/bit_murals.html",
+				"request": "launch",
+				"url": "http://file:///D:/do/graphics/2021/bit_murals_ghp/bit_murals.html"
+			}
+		]
+	}
+}
