@@ -83,15 +83,27 @@ class ValueHistogram {
 
 
     setValues(values) {
+        this.startCounting()
+        this.countValues(values)
+        this.draw()
+    }
+
+
+    // For values that come in parts: countValues doesn't redraw, draw() when needed.
+    startCounting() {
         this._counts.fill(0)
         this._zeros = 0
+        this._total = 0
+    }
+
+
+    countValues(values) {
         for (let i = 0; i < values.length; ++i) {
             const v = values[i]
             if (v === 0) ++this._zeros
             else ++this._counts[this.binOf(v)]
         }
-        this._total = values.length
-        this.draw()
+        this._total += values.length
     }
 
 

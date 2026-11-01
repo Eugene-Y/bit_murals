@@ -60,6 +60,10 @@ class FriendlyView {
         this._autoWindow = true
         this._sampleSize = 1000
         this._valueAxis = new SymLogScale()
+        this._histogramCounted = 0
+        this._histogramShowsSample = true
+        this._histogramRedrawMs = 100
+        this._histogramDrawnAt = 0
         this._minWindowDecades = 1e-4
         this.l = new Logger("Friendly View")
     }
@@ -448,6 +452,8 @@ class FriendlyView {
     onValuesChange() {
         const sample = this.sampleValues()
         this._histogram.setValues(sample)
+        this._histogramCounted = 0
+        this._histogramShowsSample = true
         if (this._autoWindow && this._colorController.getDrawingOptions().window)
             this.fitWindowTo(sample)
     }
@@ -479,9 +485,26 @@ class FriendlyView {
     }
 
 
-    onPatternDone() {
-        this._histogram.setValues(this._pattern.getValues())
-        this.syncStatus()
+    onPatternDone() { this.syncStatus() }
+
+
+    // The sample stays up until the first revealed values replace it.
+    updateHistogram() {
+        const shown = this._pattern.getPointsShown()
+        if (shown <= this._histogramCounted)
+            return
+        const h = this._histogram
+        if (this._histogramShowsSample) {
+            h.startCounting()
+            this._histogramShowsSample = false
+        }
+        h.countValues(this._pattern.getRevealedValues(this._histogramCounted, shown))
+        this._histogramCounted = shown
+        const now = performance.now()
+        if (this._pattern.done() || now - this._histogramDrawnAt > this._histogramRedrawMs) {
+            h.draw()
+            this._histogramDrawnAt = now
+        }
     }
 
 
@@ -794,6 +817,7 @@ class FriendlyView {
             this._recolorPending = false
         }
         this._pattern.draw()
+        this.updateHistogram()
         const ctx = g.drawingContext
         ctx.save()
         ctx.beginPath()

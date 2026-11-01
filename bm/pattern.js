@@ -265,6 +265,18 @@ class Pattern {
     getValues() { return this._values }
 
 
+    getPointsShown() { return this._process.pointsShown }
+
+
+    // Values of the reveal steps from .. to - 1, in reveal order.
+    getRevealedValues(from, to) {
+        const out = new Float64Array(to - from)
+        for (let k = from; k < to; ++k)
+            out[k - from] = this._values[this.pixelIndex(k)]
+        return out
+    }
+
+
     pointsInOneDraw() { return Math.ceil(this.totalPoints() / this._process.numSteps) }
 
 
