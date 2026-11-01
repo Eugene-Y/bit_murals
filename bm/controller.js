@@ -57,7 +57,10 @@ class Controller {
     getReadableUserFunctions() { return this._generator.getReadableUserFunctions() }
     getPatternNumber() { return this._currentHistoryPos }
 
-    setCurrentFormulaToPattern() { this._pattern.setFormula(this._generator.getFormulaObject()) }
+    setCurrentFormulaToPattern() {
+        const g = this._generator
+        this._pattern.setFormula(g.getFormulaObject(), g.getFormulaBody())
+    }
 
 
     nextPattern(forceAppend = true){

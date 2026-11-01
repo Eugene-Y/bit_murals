@@ -103,6 +103,7 @@ class Generator {
 		this._formulaMutator = new FormulaMutator(this)
 		this._stringifier = new FormulaStringifier(this)
 		this._formula = null
+		this._formulaBody = null
         this._params = new Map()
 
 		const nuf = 4
@@ -218,13 +219,21 @@ class Generator {
 
 	getReadableFormula() { return this._stringifier.stringify(this._formulaStructure, false) }
 	getFormulaObject() { return this._formula }
+	getFormulaBody()   { return this._formulaBody }
 	getFormulaStructure()     { return this._formulaStructure }
 	getFormulaStructureCopy() { return this._formulaStructure.copy() }
 
 	setFormulaStructure(fs) {
 		this._formulaStructure = fs
-		let f = this._stringifier.stringify(this._formulaStructure, true)
-		this._formula = FuncUtils.makeFormulaFromString(f)
+		this.compileFormula()
+	}
+
+
+	compileFormula() {
+		const f = this._stringifier.stringify(this._formulaStructure, true)
+		const [body, formula] = FuncUtils.compileFormula(f)
+		this._formulaBody = body
+		this._formula = formula
 	}
 
 	setFormulaStructureWithoutUpdates(fs) {
@@ -242,8 +251,7 @@ class Generator {
 		this.simplify(this._formulaStructure)
 		this.l.assert(this.nodeIsValid(this._formulaStructure))
 		this.l.log("depth:", depth, "num nodes:", this._formulaStructure.numChildren())
-		let f = this._stringifier.stringify(this._formulaStructure, true)
-		this._formula = FuncUtils.makeFormulaFromString(f)
+		this.compileFormula()
     }
 
 

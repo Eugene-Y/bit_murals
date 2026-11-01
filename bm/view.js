@@ -349,8 +349,7 @@ class View {
     getPatternImage() {
         const [w, h] = this._pattern.getWidthAndHight()
         let ic = this._g.createGraphics(w, h)
-        while (!this._pattern.done())
-            this._pattern.draw(true)
+        this._pattern.finishNow()
         this._pattern.getBitmap().drawTo(ic.drawingContext, 0, 0)
         this.drawNoise(ic, ic.width, ic.height)
         let img = ic.get()

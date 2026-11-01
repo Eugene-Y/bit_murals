@@ -2,11 +2,47 @@
 // License: CC Attribution-NonCommercial
 
 
+// The helpers below also run inside the pattern workers.
+
+// Pixels are visited in the order k * jump (mod total), with jump coprime
+// to total: a full permutation that looks like noise, so the picture emerges
+// evenly everywhere instead of line by line.
+function patternPixelIndex(k, jump, total) { return (k * jump) % total }
+
+
+function normalizePatternValue(v) {
+    if (isNaN(v)) v = 0
+    else if (v == null) v = 0
+    else if (!isFinite(v))
+        v = (v > 0) ?
+            Number.MAX_VALUE
+            : -Number.MAX_VALUE
+    return v
+}
+
+
+// Values of the reveal steps start .. start + count - 1, in reveal order.
+function calculatePatternChunk(formula, job, start, count) {
+    const { w, h, z, x0, y0, jump, total } = job
+    const values = new Float64Array(count)
+    for (let j = 0; j < count; ++j) {
+        const i = patternPixelIndex(start + j, jump, total)
+        const x = i % w
+        const y = (i - x) / w
+        values[j] = normalizePatternValue(formula(x0 + x * z, y0 + y * z, w, h, z, x0, y0))
+    }
+    return values
+}
+
+
+
+
 class Pattern {
     constructor(w, h) {
         this._W = w
         this._H = h
         this._formula = null
+        this._formulaBody = null
         this._doneCallback = null
         this._values = new Float64Array(w * h)
         this._bitmap = new PatternBitmap(w, h)
@@ -15,8 +51,11 @@ class Pattern {
             pointsShown      : 0,
             numSteps         : 75, // TODO move to slideshow?
             jump             : 5,
-            dropSaved        : true
+            dropSaved        : true,
+            gen              : 0,
+            receivedChunks   : new Map()
         }
+        this._workers = new PatternWorkers((start, values) => { this.receiveChunk(start, values) })
         this._redrawFade = 10 / 255
         this._framing = new Framing(0, 0, 1)
         this.l = new Logger("Pattern")
@@ -26,7 +65,7 @@ class Pattern {
     }
 
 
-    getPercentReady() { return 100.0 * this._process.pointsCalculated / this.totalPoints() }
+    getPercentReady() { return 100.0 * this._process.pointsShown / this.totalPoints() }
 
 
     getBitmap() { return this._bitmap }
@@ -38,16 +77,17 @@ class Pattern {
         if (!f) f = this._formula
         const fr = this._framing
         const z = fr.zoom
-        return this.normalFix(f(fr.x0 + x * z, fr.y0 + y * z, this._W, this._H, z, fr.x0, fr.y0))
+        return normalizePatternValue(f(fr.x0 + x * z, fr.y0 + y * z, this._W, this._H, z, fr.x0, fr.y0))
     }
 
 
     done() { return this._process.pointsShown >= this.totalPoints() }
 
 
-    setFormula(f) {
+    setFormula(f, body) {
         this.l.logg("set formula")
         this._formula = f
+        this._formulaBody = body
         this._process.dropSaved = true
         this.l.loge()
     }
@@ -101,9 +141,6 @@ class Pattern {
     }
 
 
-    // The pixels are visited in the order k * jump (mod total), with jump coprime
-    // to total: a full permutation that looks like noise, so the picture emerges
-    // evenly everywhere instead of line by line.
     pickJump(){
         let j = this._process.numSteps
         if (j % 2 === 0) ++j
@@ -114,7 +151,7 @@ class Pattern {
     }
 
 
-    pixelIndex(k) { return (k * this._process.jump) % this.totalPoints() }
+    pixelIndex(k) { return patternPixelIndex(k, this._process.jump, this.totalPoints()) }
 
 
     gcd(x, y) {
@@ -142,6 +179,7 @@ class Pattern {
         this._bitmap.resize(w, h)
         this.pickJump()
         this._process.dropSaved = true
+        this.resetProcess()
         return 1
     }
 
@@ -161,8 +199,30 @@ class Pattern {
         if (p.dropSaved) {
             p.pointsCalculated = 0
             p.dropSaved = false
+            p.receivedChunks.clear()
+            ++p.gen
+            if (this.calculatesInWorkers())
+                this._workers.startJob(this.makeJob(), this._formulaBody)
         }
         p.pointsShown = 0
+    }
+
+
+    calculatesInWorkers() { return this._workers.available() && this._formulaBody !== null }
+
+
+    makeJob() {
+        const f = this._framing
+        return {
+            gen   : this._process.gen,
+            w     : this._W,
+            h     : this._H,
+            z     : f.zoom,
+            x0    : f.x0,
+            y0    : f.y0,
+            jump  : this._process.jump,
+            total : this.totalPoints()
+        }
     }
 
 
@@ -172,7 +232,7 @@ class Pattern {
 
         const p = this._process
         const n = this.pointsInOneDraw()
-        if (p.pointsShown >= p.pointsCalculated)
+        if (!this.calculatesInWorkers() && p.pointsShown >= p.pointsCalculated)
             this.calculatePoints(n)
         this.showPoints(Math.min(n, p.pointsCalculated - p.pointsShown))
 
@@ -189,22 +249,36 @@ class Pattern {
     pointsInOneDraw() { return Math.ceil(this.totalPoints() / this._process.numSteps) }
 
 
-    calculatePoints(n) {
+    // Synchronous: for saving a picture right away, or when there are no workers.
+    finishNow() {
         const p = this._process
-        const end = Math.min(this.totalPoints(), p.pointsCalculated + n)
-        const w = this._W
-        const h = this._H
-        const z = this._framing.zoom
-        const x0 = this._framing.x0
-        const y0 = this._framing.y0
-        const f = this._formula
-        for (let k = p.pointsCalculated; k < end; ++k) {
-            const i = this.pixelIndex(k)
-            const x = i % w
-            const y = (i - x) / w
-            this._values[i] = this.normalFix(f(x0 + x * z, y0 + y * z, w, h, z, x0, y0))
+        this.calculatePoints(this.totalPoints() - p.pointsCalculated)
+        this._workers.stopJob()
+        this.showPoints(this.totalPoints() - p.pointsShown)
+    }
+
+
+    calculatePoints(n) {
+        const start = this._process.pointsCalculated
+        n = Math.min(n, this.totalPoints() - start)
+        this.receiveChunk(start, calculatePatternChunk(this._formula, this.makeJob(), start, n))
+    }
+
+
+    // Chunks from the workers can come out of order; pointsCalculated only
+    // grows over the contiguous prefix of the reveal order.
+    receiveChunk(start, values) {
+        const p = this._process
+        if (start < p.pointsCalculated)
+            return
+        for (let j = 0; j < values.length; ++j)
+            this._values[this.pixelIndex(start + j)] = values[j]
+        p.receivedChunks.set(start, values.length)
+        while (p.receivedChunks.has(p.pointsCalculated)) {
+            const k = p.pointsCalculated
+            p.pointsCalculated += p.receivedChunks.get(k)
+            p.receivedChunks.delete(k)
         }
-        p.pointsCalculated = end
     }
 
 
@@ -217,17 +291,6 @@ class Pattern {
             this._bitmap.setPixel(i, cf(this._values[i]))
         }
         p.pointsShown = end
-    }
-
-
-    normalFix(v) {
-        if (isNaN(v)) v = 0
-        else if (v == null) v = 0
-        else if (!isFinite(v))
-            v = (v > 0) ?
-                Number.MAX_VALUE
-                : -Number.MAX_VALUE
-        return v
     }
 
 

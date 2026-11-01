@@ -106,16 +106,24 @@ const FuncUtils = {
     },
 
 
-	makeFormulaFromString: (str) => {
-		let f = new Function("x", "y", "w", "h", "z", "x0", "y0", "return false")
+	formulaArgs: ["x", "y", "w", "h", "z", "x0", "y0"],
+
+
+	// The body is returned too: workers rebuild the same function from it.
+	compileFormula: (str) => {
+		let body = "return " + str
 		try {
-        	f = new Function("x", "y", "w", "h", "z", "x0", "y0", "return " + str)
+			return [body, FuncUtils.makeFormula(body)]
 		}
 		catch (e) {
 			FuncUtils.l.warn("failed to make formula from string", e.message)
+			body = "return false"
+			return [body, FuncUtils.makeFormula(body)]
 		}
-		return f
-    }
+	},
+
+
+	makeFormula: (body) => { return new Function(...FuncUtils.formulaArgs, body) }
 }
 
 
