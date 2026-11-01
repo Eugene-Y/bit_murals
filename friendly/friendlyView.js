@@ -144,7 +144,7 @@ class FriendlyView {
 
     buildHeader() {
         const link = document.createElement("a")
-        link.href = "index.html"
+        link.href = "classic.html"
         link.textContent = "classic version"
         link.dataset.tip = "the original interface: everything on the keyboard and touch zones"
         return this.section("header", this.text("title", "bit murals"), link)

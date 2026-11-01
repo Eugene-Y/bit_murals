@@ -1,31 +1,14 @@
 <!DOCTYPE html>
-<html lang="">
+<html lang="en">
 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>bit murals</title>
+  <link rel="stylesheet" href="friendly/friendly.css">
 
-  <style>
-    html, body, .container {
-        height: 100%;
-        width: 100%;
-        background-color: rgb(80,80,80);
-      }
-    body {
-      padding: 0;
-      margin: 0;
-      overflow: hidden; /* Hide scrollbars */
-    }
-    .container {
-      display: flex;
-      flex-direction: row;
-    }
-  </style>
-  
   <script src="p5/p5.min.js"></script>
   <script src="bm/logger.js"></script>
-  <script src="bm/bitMurals.js"></script>
   <script src="bm/generator.js"></script>
   <script src="bm/genElements.js"></script>
   <script src="bm/paramController.js"></script>
@@ -39,24 +22,28 @@
   <script src="bm/valueScales.js"></script>
   <script src="bm/colorController.js"></script>
   <script src="bm/QA.js"></script>
-  <script src="bm/layout.js"></script>
   <script src="bm/noiseOverlay.js"></script>
-  <script src="bm/view.js"></script>
   <script src="bm/patternBitmap.js"></script>
   <script src="bm/patternWorkers.js"></script>
   <script src="bm/pattern.js"></script>
-  <script src="bm/rectangle.js"></script>
   <script src="bm/history.js"></script>
   <script src="bm/slideshow.js"></script>
-  <script src="bm/info.js"></script>
-  <script src="bm/tour.js"></script>
   <script src="bm/importExport.js"></script>
-  <script src="bm/slider.js"></script>
-  <script src="bm/touchZone.js"></script>
   <script src="lzwCompress/lzwCompress.js"></script>
-  
+  <script src="friendly/barSlider.js"></script>
+  <script src="friendly/valueHistogram.js"></script>
+  <script src="friendly/tooltip.js"></script>
+  <script src="friendly/valueSweep.js"></script>
+  <script src="friendly/friendlyView.js"></script>
+  <script src="friendly/friendlyApp.js"></script>
+
 </head>
 
-<body></body>
+<body>
+  <div class="app">
+    <div id="pattern-area"></div>
+    <div id="panel"></div>
+  </div>
+</body>
 
 </html>
