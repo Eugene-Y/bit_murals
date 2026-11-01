@@ -64,6 +64,9 @@ class FriendlyView {
         this._histogramShowsSample = true
         this._histogramRedrawMs = 100
         this._histogramDrawnAt = 0
+        this._sweep = null
+        this._sweepWanted = false
+        this._sweepBins = []
         this._minWindowDecades = 1e-4
         this.l = new Logger("Friendly View")
     }
@@ -194,8 +197,11 @@ class FriendlyView {
                                         + "resizing the browser window keeps it  [f, shift+f back]", () => { this.nextFraming(1) })
         b.save      = this.button("save", "save the picture and a settings file  [↓]", () => { this.save() })
         b.load      = this.button("load", "load a settings file, or drop it on the page  [↑]", () => { this.load() })
+        b.sweep     = this.button("sweep", "run through the values: the histogram's non-empty bins one by one, "
+                                         + "from zero outward, with a fading trail. starts once the pattern is done  [p]",
+                                  () => { this.toggleSweep() })
         return this.section("buttons transport",
-                            b.prev, b.next, b.play, b.randomize, b.mutate, b.framing, b.save, b.load)
+                            b.prev, b.next, b.play, b.randomize, b.mutate, b.framing, b.sweep, b.save, b.load)
     }
 
 
@@ -450,6 +456,7 @@ class FriendlyView {
     // The histogram and the auto window can't wait for the whole pattern, so
     // they start from a quick sample calculated here.
     onValuesChange() {
+        this.stopSweep()
         const sample = this.sampleValues()
         this._histogram.setValues(sample)
         this._histogramCounted = 0
@@ -473,6 +480,7 @@ class FriendlyView {
 
     // Sliders fire faster than frames, so the recolor waits for the next one.
     onColorChange() {
+        this.stopSweep()
         this._recolorPending = true
         this.syncDrawingControls()
     }
@@ -485,7 +493,76 @@ class FriendlyView {
     }
 
 
-    onPatternDone() { this.syncStatus() }
+    onPatternDone() {
+        this.syncStatus()
+        if (this._sweepWanted)
+            this.startSweep()
+    }
+
+
+    toggleSweep() {
+        this.stopSlideshow()
+        if (this._sweep || this._sweepWanted)
+            this.endSweep()
+        else if (this._pattern.done())
+            this.startSweep()
+        else
+            this._sweepWanted = true
+        this.syncSweepButton()
+    }
+
+
+    // The trail is in the color mode as it is, without the window.
+    startSweep() {
+        this._sweepWanted = false
+        const cc = this._colorController
+        const d = cc.getDrawingOptions().copy()
+        d.window = false
+        const h = this._histogram
+        const sweep = new ValueSweep(this._pattern.getValues(), (v) => h.binOf(v), h.numBins(),
+                                     cc.makeColorFunction(d), this._pattern.getBitmap())
+        this._sweep = sweep.numSteps() ? sweep : null
+        this.syncSweepButton()
+    }
+
+
+    advanceSweep() {
+        const bins = this._sweep.step(performance.now())
+        if (bins === null) {
+            this.endSweep()
+            return
+        }
+        if (bins !== this._sweepBins) {
+            this._sweepBins = bins
+            this._histogram.setSweepBins(bins)
+        }
+    }
+
+
+    // The picture comes back the way it first emerged.
+    endSweep() {
+        const wasRunning = this._sweep !== null
+        this.stopSweep()
+        if (wasRunning)
+            this._pattern.startRedraw()
+    }
+
+
+    // Whoever stops it redraws or recolors the pattern anyway.
+    stopSweep() {
+        if (!this._sweep && !this._sweepWanted)
+            return
+        this._sweep = null
+        this._sweepWanted = false
+        this._sweepBins = []
+        this._histogram.setSweepBins([])
+        this.syncSweepButton()
+    }
+
+
+    syncSweepButton() {
+        this._buttons.sweep.classList.toggle("on", this._sweep !== null || this._sweepWanted)
+    }
 
 
     // The sample stays up until the first revealed values replace it.
@@ -640,6 +717,10 @@ class FriendlyView {
 
     save() {
         this.stopSlideshow()
+        if (this._sweep) {
+            this.stopSweep()
+            this._pattern.recolor()
+        }
         const [w, h] = this._pattern.getWidthAndHight()
         this._pattern.finishNow()
         const ic = this._g.createGraphics(w, h)
@@ -765,6 +846,7 @@ class FriendlyView {
                 "n": () => { this.toggleDrawingOption("negative") },
                 "c": () => { this.toggleDrawingOption("colored") },
                 "f": () => { this.nextFraming(e.shiftKey ? -1 : 1) },
+                "p": () => { this.toggleSweep() },
                 "0": () => { this.resetBrightness() },
                 "9": () => { this.resetHue() }
             }
@@ -818,6 +900,8 @@ class FriendlyView {
         }
         this._pattern.draw()
         this.updateHistogram()
+        if (this._sweep)
+            this.advanceSweep()
         const ctx = g.drawingContext
         ctx.save()
         ctx.beginPath()

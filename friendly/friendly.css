@@ -86,7 +86,7 @@ html, body {
 .info .framing, .info .value { color: var(--text-dim); }
 
 .buttons { display: grid; gap: 3px; }
-.transport { grid-template-columns: repeat(8, 1fr); }
+.transport { grid-template-columns: repeat(9, 1fr); }
 .modes { grid-template-columns: repeat(5, 1fr); }
 .btn {
     font: inherit;
@@ -182,6 +182,6 @@ html, body {
     .app { flex-direction: column; height: auto; }
     #pattern-area { flex: none; height: 100vw; }
     #panel { width: 100%; height: auto; overflow: visible; padding: 12px 16px 32px; }
-    .transport { grid-template-columns: repeat(4, 1fr); }
+    .transport { grid-template-columns: repeat(5, 1fr); }
     #panel > .generator { flex: none; overflow: visible; }
 }

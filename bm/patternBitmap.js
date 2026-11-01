@@ -89,6 +89,25 @@ class PatternBitmap {
     }
 
 
+    // keep: the share of each pixel's distance to the background left after
+    // one call. Unlike fadeToBackground, the distance always shrinks, so every
+    // pixel gets to the background in the end.
+    decayToBackground(keep) {
+        const px = this._pixels
+        const bg = this._background
+        const k = Math.max(0, Math.min(255, Math.floor(keep * 256)))
+        const decay = (c) => {
+            const d = c - bg
+            return bg + (d >= 0 ? (d * k) >> 8 : -((-d * k) >> 8))
+        }
+        for (let i = 0; i < px.length; ++i) {
+            const c = px[i]
+            px[i] = ColorPacking.rgba(decay(c & 0xff), decay((c >>> 8) & 0xff), decay((c >>> 16) & 0xff))
+        }
+        this._dirty = true
+    }
+
+
     // Smoothing off: on HiDPI screens the bitmap is upscaled and must stay crisp.
     drawTo(ctx, x, y) {
         if (this._dirty) {

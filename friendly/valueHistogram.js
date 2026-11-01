@@ -16,6 +16,7 @@ class ValueHistogram {
         this._total = 0
         this._mark = null
         this._markCenter = null
+        this._sweepBins = []
         this._dragThresholdPx = 3
         this._onPickValue = () => {}
         this._onPickRange = () => {}
@@ -113,6 +114,16 @@ class ValueHistogram {
     }
 
 
+    numBins() { return this._numBins }
+
+
+    // bins a sweep lights up right now, drawn over everything
+    setSweepBins(bins) {
+        this._sweepBins = bins
+        this.draw()
+    }
+
+
     // range: [from, to] in values, or null; center: a value or null
     setMark(range, center = null) {
         this._mark = range
@@ -173,6 +184,13 @@ class ValueHistogram {
             g.fillStyle = "rgb(255, 255, 255)"
             for (let y = 0; y < h; y += 4 * dpr)
                 g.fillRect(xc - dpr, y, 2 * dpr, 2 * dpr)
+        }
+
+        if (this._sweepBins.length) {
+            const barW = w / this._numBins
+            g.fillStyle = "rgb(255, 255, 255)"
+            for (const b of this._sweepBins)
+                g.fillRect(b * barW, 0, Math.max(dpr, barW), h)
         }
 
         g.fillStyle = "rgb(120, 120, 120)"

@@ -301,7 +301,14 @@ class PatternColorController {
 
 
     updateColorFunction() {
-        const d = this._drawingOptions
+        const cf = this.makeColorFunction(this._drawingOptions)
+        this._colorFunction = cf
+        this._pattern.setColorFunction(cf)
+    }
+
+
+    makeColorFunction(drawingOptions) {
+        const d = drawingOptions
         const hf = this.makeHueFunc(d)
         const sf = this.makeSaturationFunc(d)
         const bf = this.makeBrightnessFunc(d)
@@ -311,8 +318,7 @@ class PatternColorController {
         }
         if (d.window)
             cf = this.limitToWindow(d, cf)
-        this._colorFunction = cf
-        this._pattern.setColorFunction(cf)
+        return cf
     }
 
 
