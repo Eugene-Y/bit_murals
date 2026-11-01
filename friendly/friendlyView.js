@@ -225,7 +225,7 @@ class FriendlyView {
         const maxDecades = this._valueAxis.unitsRange()[1]
         s.width = this.toneSlider("width", new LogScale(Math.log10(this._minWindowDecades), Math.log10(maxDecades)),
                                   1, manualWindow((v) => cc.setWindowDecades(v)))
-        s.width.setReadoutFormatter((v) => `±${ScaleUtils.formatNumber(v)}`)
+        s.width.setReadoutFormatter((v) => `±${ScaleUtils.formatNumber(v)} dec`)
         s.width.setTooltip("how far the window reaches each way from the center, in decades: "
                          + "±1 around 100 is 10 … 1000. it is the same width on the histogram wherever the center is")
         s.hueAmp = this.toneSlider("hue amp", new LogScale(-300, 300), 1, (v) => cc.setHueAmp(v))
