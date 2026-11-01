@@ -216,7 +216,7 @@ class FriendlyView {
 
         s.amp = this.toneSlider("amp", new LogScale(-300, 300), 1, (v) => cc.setBrightnessAmp(v))
         s.offset = this.toneSlider("offset", new SymLogScale(), 0, (v) => cc.setBrightnessOffset(v))
-        const manualWindow = (setter) => { return (v) => { this.setAutoWindow(false); setter(v) } }
+        const manualWindow = (setter) => { return (v) => { this.takeWindowOverManually(); setter(v) } }
         s.center = this.toneSlider("center", new SymLogScale(), 0, manualWindow((v) => cc.setWindowCenter(v)))
         s.center.setTooltip("the value in the middle of the window. the scale is logarithmic in |value|: "
                           + "left half negative, right half positive, 0 in the middle")
@@ -228,14 +228,17 @@ class FriendlyView {
         s.hueOffset.setTooltip("added after the hue amp, before mod 255")
 
         this._buttons.fit = this.button("fit", "once: center on the median value, "
-                                             + "delta over the middle half of the values", () => { this.fitWindow() })
+                                             + "delta over the middle half of the values", () => {
+            this.useWindow()
+            this.fitWindow()
+        })
         this._buttons.auto = this.button("auto", "fit the window to every new pattern, pan and zoom. "
                                                + "moving center or delta turns it off", () => {
             this.setAutoWindow(!this._autoWindow)
             if (this._autoWindow)
                 this.fitWindow()
         })
-        this._histogram.element().addEventListener("pointerdown", () => { this.stopSlideshow() })
+        this.listenToHistogram()
 
         const fine = this.text("hint", "drag · shift+drag fine · wheel · 2× click default · click the number to type")
         this._toneCaption = this.text("tone-caption")
@@ -243,11 +246,36 @@ class FriendlyView {
                                        this._buttons.fit, this._buttons.auto)
         return this.section("tone",
                             this._histogram.element(),
+                            this._windowRow,
                             this._toneCaption,
                             s.amp.element(), s.offset.element(),
-                            this._windowRow,
                             s.hueAmp.element(), s.hueOffset.element(),
                             fine)
+    }
+
+
+    // The histogram always sets the window, and turns it on.
+    listenToHistogram() {
+        const h = this._histogram
+        const cc = this._colorController
+        h.setUsageTip("click: center the window here · drag: window over a range · 2× click: center at 0")
+        h.element().addEventListener("pointerdown", () => { this.stopSlideshow() })
+        h.onPickValue((v) => {
+            this.takeWindowOverManually()
+            cc.setWindowCenter(v)
+            this.onColorChange()
+        })
+        h.onPickRange((from, to) => {
+            this.takeWindowOverManually()
+            cc.setWindowCenter(from / 2 + to / 2)
+            cc.setWindowDelta(Math.max(to / 2 - from / 2, Number.MIN_VALUE))
+            this.onColorChange()
+        })
+        h.onReset(() => {
+            this.takeWindowOverManually()
+            cc.setWindowCenter(0)
+            this.onColorChange()
+        })
     }
 
 
@@ -342,7 +370,7 @@ class FriendlyView {
 
         s.amp.setVisible(!ramp)
         s.offset.setVisible(!ramp)
-        this._windowRow.hidden = !d.window
+        this._windowRow.classList.toggle("idle", !d.window)
         s.hueAmp.setVisible(d.colored)
         s.hueOffset.setVisible(d.colored)
 
@@ -382,26 +410,14 @@ class FriendlyView {
     syncHistogramMark() {
         const d = this._colorController.getDrawingOptions()
         const h = this._histogram
-        if (d.window) {
-            h.setMark([d.windowCenter - d.windowDelta, d.windowCenter + d.windowDelta])
-            h.onPick((v) => {
-                this.setAutoWindow(false)
-                this._colorController.setWindowCenter(v)
-                this.onColorChange()
-            }, "click: center the window here")
-        }
+        if (d.window)
+            h.setMark([d.windowCenter - d.windowDelta, d.windowCenter + d.windowDelta], d.windowCenter)
         else if (!d.infrared) {
             const t = Math.abs(d.brightnessOffset / d.brightnessAmp)
             h.setMark(t > 0 ? [-t, t] : null)
-            h.onPick((v) => {
-                this._colorController.setBrightnessOffset(Math.abs(v * d.brightnessAmp))
-                this.onColorChange()
-            }, "click: values closer to zero than this count as zero")
         }
-        else {
+        else
             h.setMark(null)
-            h.onPick(() => {}, "")
-        }
     }
 
 
@@ -527,6 +543,18 @@ class FriendlyView {
         this._slideshowTouched = true
         this._slideshow.stop()
         this.syncStatus()
+    }
+
+
+    useWindow() {
+        if (!this._colorController.getDrawingOptions().window)
+            this._colorController.setWindow(true)
+    }
+
+
+    takeWindowOverManually() {
+        this.setAutoWindow(false)
+        this.useWindow()
     }
 
 

@@ -106,6 +106,7 @@ html, body {
 .window-row { display: flex; gap: 3px; }
 .window-row .bar-slider { flex: 1; }
 .window-row .btn { width: 40px; }
+.window-row.idle { opacity: 0.45; }
 .tone-caption { color: var(--text-dim); }
 
 .bar-slider {

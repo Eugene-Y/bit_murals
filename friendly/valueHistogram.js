@@ -4,6 +4,9 @@
 
 // How the pattern's values spread over the whole double range (symlog axis,
 // zero in the middle), with the part the current drawing mode resolves marked.
+//   click        - pick a value
+//   drag         - pick a range, reported while dragging
+//   double click - reset
 class ValueHistogram {
     constructor() {
         this._scale = new SymLogScale()
@@ -12,23 +15,58 @@ class ValueHistogram {
         this._zeros = 0
         this._total = 0
         this._mark = null
-        this._onPick = () => {}
+        this._markCenter = null
+        this._dragThresholdPx = 3
+        this._onPickValue = () => {}
+        this._onPickRange = () => {}
+        this._onReset = () => {}
+        this._usageTip = ""
 
         this._el = document.createElement("canvas")
         this._el.className = "histogram"
-        this._el.addEventListener("click", (e) => { this._onPick(this.valueAt(e.clientX)) })
-        this._el.addEventListener("pointermove", (e) => {
-            this._el.dataset.tip = "value here: " + ScaleUtils.formatNumber(this.valueAt(e.clientX))
-                                 + (this._clickTip ? "\n" + this._clickTip : "")
-        })
+        this.listen()
     }
 
 
     element() { return this._el }
 
-    onPick(cb, tip) {
-        this._onPick = cb
-        this._clickTip = tip
+    onPickValue(cb) { this._onPickValue = cb }
+
+    onPickRange(cb) { this._onPickRange = cb }
+
+    onReset(cb) { this._onReset = cb }
+
+    setUsageTip(text) { this._usageTip = text }
+
+
+    listen() {
+        const el = this._el
+        let downX = null
+        let dragging = false
+        el.addEventListener("pointerdown", (e) => {
+            el.setPointerCapture(e.pointerId)
+            downX = e.clientX
+            dragging = false
+        })
+        el.addEventListener("pointermove", (e) => {
+            el.dataset.tip = "value here: " + ScaleUtils.formatNumber(this.valueAt(e.clientX))
+                           + (this._usageTip ? "\n" + this._usageTip : "")
+            if (downX === null || !el.hasPointerCapture(e.pointerId))
+                return
+            dragging = dragging || Math.abs(e.clientX - downX) > this._dragThresholdPx
+            if (dragging) {
+                const a = this.valueAt(downX)
+                const b = this.valueAt(e.clientX)
+                this._onPickRange(Math.min(a, b), Math.max(a, b))
+            }
+        })
+        el.addEventListener("pointerup", (e) => {
+            if (downX !== null && !dragging)
+                this._onPickValue(this.valueAt(e.clientX))
+            downX = null
+            el.releasePointerCapture(e.pointerId)
+        })
+        el.addEventListener("dblclick", () => { this._onReset() })
     }
 
 
@@ -63,9 +101,10 @@ class ValueHistogram {
     }
 
 
-    // [from, to] in values, or null
-    setMark(range) {
+    // range: [from, to] in values, or null; center: a value or null
+    setMark(range, center = null) {
         this._mark = range
+        this._markCenter = center
         this.draw()
     }
 
@@ -83,14 +122,12 @@ class ValueHistogram {
         g.fillStyle = "rgb(52, 52, 52)"
         g.fillRect(0, 0, w, h)
 
+        const xOf = (v) => { return ScaleUtils.toPosition(this._scale, v) * w }
         if (this._mark) {
-            const x0 = ScaleUtils.toPosition(this._scale, this._mark[0]) * w
-            const x1 = ScaleUtils.toPosition(this._scale, this._mark[1]) * w
+            const x0 = xOf(this._mark[0])
+            const x1 = xOf(this._mark[1])
             g.fillStyle = "rgba(230, 230, 230, 0.18)"
             g.fillRect(x0, 0, Math.max(1, x1 - x0), h)
-            g.fillStyle = "rgb(220, 220, 220)"
-            g.fillRect(x0, 0, 1, h)
-            g.fillRect(Math.max(x0, x1 - 1), 0, 1, h)
         }
 
         if (this._total) {
@@ -107,6 +144,23 @@ class ValueHistogram {
                 const bh = Math.max(1, h * Math.log1p(this._zeros) / maxLog)
                 g.fillRect(w / 2 - dpr, h - bh, 2 * dpr, bh)
             }
+        }
+
+        // over the bars, or a tall bar hides them
+        if (this._mark) {
+            const x0 = xOf(this._mark[0])
+            const x1 = xOf(this._mark[1])
+            g.fillStyle = "rgb(220, 220, 220)"
+            g.fillRect(x0, 0, dpr, h)
+            g.fillRect(Math.max(x0, x1 - dpr), 0, dpr, h)
+        }
+        if (this._markCenter !== null) {
+            const xc = xOf(this._markCenter)
+            g.fillStyle = "rgb(40, 40, 40)"
+            g.fillRect(xc - 2 * dpr, 0, 4 * dpr, h)
+            g.fillStyle = "rgb(255, 255, 255)"
+            for (let y = 0; y < h; y += 4 * dpr)
+                g.fillRect(xc - dpr, y, 2 * dpr, 2 * dpr)
         }
 
         g.fillStyle = "rgb(120, 120, 120)"
