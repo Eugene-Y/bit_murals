@@ -201,7 +201,7 @@ class FriendlyView {
                                         + "off: black and white, zero vs non-zero  [i]",
                                  () => { this.toggleDrawingOption("infrared") })
         b.window   = this.button("window", "MRI-style window: only the values marked on the histogram are drawn, "
-                                         + "the rest is background. without infra: a ramp from dark to bright across it  [w]",
+                                         + "the rest is background. without infra the values inside are just bright  [w]",
                                  () => { this.toggleDrawingOption("window") })
         b.signed   = this.button("sign", "plain: negative dark, positive bright. infra: around a middle gray  [s]",
                                  () => { this.toggleDrawingOption("signed") })
@@ -395,7 +395,7 @@ class FriendlyView {
         if (d.infrared)
             parts.push(`one brightness cycle per ${n(200 / Math.abs(d.brightnessAmp))} of value`)
         else if (d.window)
-            parts.push(d.negative ? "bright → dark across it" : "dark → bright across it")
+            parts.push(d.negative ? "inside dark, outside bright" : "inside bright, outside dark")
         else
             parts.push("dark: exactly zero · bright: the rest")
         this._toneCaption.textContent = parts.join(" · ")

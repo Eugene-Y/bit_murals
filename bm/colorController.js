@@ -91,7 +91,6 @@ class PatternColorController {
     }
 
 
-    // Close, not exact: the inside of the window gets a ramp instead of being flat.
     convertThresholdToWindow() {
         const d = this._drawingOptions
         const t = Math.abs(d.brightnessOffset / d.brightnessAmp)
@@ -397,7 +396,7 @@ class PatternColorController {
     makeBrightnessFunc(drawingOptions) {
         const d = drawingOptions
         if (d.window && !d.infrared)
-            return this.makeWindowRampFunc(d)
+            return this.makeWindowInsideFunc(d)
 
         let b = (p) => { return 0 }
 
@@ -471,22 +470,11 @@ class PatternColorController {
     }
 
 
-    // Inside the window without infrared: dark at its low end, bright at the
-    // high one. Amp and offset don't apply here.
-    makeWindowRampFunc(drawingOptions) {
-        const d = drawingOptions
-        const low = this._lowBrightness
-        const range = this._hiBrightness - low
-        const axis = this._valueAxis
-        const center = axis.toUnits(d.windowCenter)
-        const width = Math.max(2 * d.windowDecades, Number.MIN_VALUE)
-        const ramp = (p) => {
-            const t = 0.5 + (axis.toUnits(p) - center) / width
-            return t <= 0 ? 0 : (t >= 1 ? 1 : t)
-        }
-        if (d.negative)
-            return (p) => { return low + range * (1 - ramp(p)) }
-        return (p) => { return low + range * ramp(p) }
+    // Without infrared the window is a plain selection, the opposite of the
+    // background. Amp and offset don't apply here.
+    makeWindowInsideFunc(drawingOptions) {
+        const inside = drawingOptions.negative ? this._lowBrightness : this._hiBrightness
+        return (p) => { return inside }
     }
 
 
