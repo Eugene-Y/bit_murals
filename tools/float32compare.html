@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>float32 vs float64</title>
+
+  <style>
+    :root {
+      --bg: rgb(40, 40, 40);
+      --panel: rgb(56, 56, 56);
+      --text: rgb(230, 230, 230);
+      --muted: rgb(160, 160, 160);
+      --accent: rgb(255, 90, 70);
+      --bar: rgb(140, 140, 140);
+    }
+    body {
+      margin: 0;
+      padding: 16px;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.4 ui-monospace, Menlo, monospace;
+    }
+    h1 { font-size: 16px; margin: 0 0 12px; }
+    .controls, .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 20px;
+      align-items: end;
+      background: var(--panel);
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+    input, select, button {
+      font: inherit;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid rgb(90, 90, 90);
+      padding: 4px 6px;
+    }
+    input[type=number] { width: 70px; }
+    input.wide { width: 320px; max-width: 80vw; }
+    button { cursor: pointer; padding: 4px 14px; }
+    .histogram { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; min-width: 280px; }
+    .histogram .bar { background: var(--bar); height: 12px; align-self: center; }
+    .grid { display: flex; flex-direction: column; gap: 16px; }
+    .card { background: var(--panel); padding: 10px; }
+    .card .title { margin-bottom: 6px; }
+    .card .title b { color: var(--accent); }
+    .card .formula { color: var(--muted); word-break: break-all; margin-bottom: 8px; max-height: 3.6em; overflow: hidden; }
+    .images { display: flex; flex-wrap: wrap; gap: 8px; }
+    .images figure { margin: 0; }
+    .images figcaption { color: var(--muted); }
+    canvas { image-rendering: pixelated; width: 300px; max-width: calc(100vw - 52px); display: block; }
+  </style>
+
+  <script src="../bm/logger.js"></script>
+  <script src="../bm/genElements.js"></script>
+  <script src="../bm/paramController.js"></script>
+  <script src="../bm/formulaNode.js"></script>
+  <script src="../bm/functionUtils.js"></script>
+  <script src="../bm/formulaCompiler.js"></script>
+  <script src="../bm/formulaStringifier.js"></script>
+  <script src="../bm/mutator.js"></script>
+  <script src="../bm/generator.js"></script>
+  <script src="../bm/colorController.js"></script>
+  <script src="../bm/patternBitmap.js"></script>
+  <script src="../bm/panZoomController.js"></script>
+  <script src="../bm/patternWorkers.js"></script>
+  <script src="../bm/pattern.js"></script>
+  <script src="float32Compiler.js"></script>
+</head>
+
+<body>
+  <h1>float32 (shader) vs float64 (JS): the most different patterns</h1>
+
+  <div class="controls">
+    <label>formulas <input id="count" type="number" value="120" min="1"></label>
+    <label>depth from <input id="dMin" type="number" value="0.2" step="0.05" min="0" max="1"></label>
+    <label>depth to <input id="dMax" type="number" value="0.8" step="0.05" min="0" max="1"></label>
+    <label>randomize other params <input id="randomize" type="checkbox"></label>
+    <label>user function u0 (optional) <input id="userFunction" class="wide" placeholder="gen + ((y%100 < 50) ? 0 : sin(gen))"></label>
+    <button id="run">run</button>
+    <span id="progress"></span>
+  </div>
+
+  <div class="summary">
+    <label>drawing mode
+      <select id="mode">
+        <option value="0,0,0,0">plain (zero / non-zero)</option>
+        <option value="0,0,0,1">signed</option>
+        <option value="1,0,0,0">infrared</option>
+        <option value="1,0,0,1">infrared signed</option>
+        <option value="0,0,1,0">colored</option>
+        <option value="1,0,1,0">colored infrared</option>
+      </select>
+    </label>
+    <label>show top <input id="top" type="number" value="12" min="1"></label>
+    <div>
+      <div style="color: var(--muted); margin-bottom: 4px">pixels that differ, per formula
+        (single-color patterns left out)</div>
+      <div id="histogram" class="histogram"></div>
+    </div>
+  </div>
+
+  <div id="grid" class="grid"></div>
+
+  <script>
+    const W = 300
+    const H = 200
+
+    let samples = []
+
+
+    function calculateValues(formula) {
+      const values = new Float64Array(W * H)
+      for (let i = 0; i < values.length; ++i) {
+        const x = i % W
+        const y = (i - x) / W
+        values[i] = normalizePatternValue(formula(x, y, W, H, 1, 0, 0))
+      }
+      return values
+    }
+
+
+    function makeSample(d, userFunction) {
+      const g = new Generator()
+      if (userFunction) {
+        g.setReadableUserFunctions([userFunction, "", "", ""])
+        g.getParams().get("F").value = 0.6
+        g.getParams().get("T/U").value = 0.2
+      }
+      if (document.getElementById("randomize").checked) {
+        const pc = new ParamController()
+        pc.setParams(g.getParams())
+        pc.randomizeParams()
+      }
+      g.getParams().get("d").value = d
+      g.generateFormula()
+
+      const js = g._stringifier.stringify(g.getFormulaStructure(), true)
+      const f32 = FuncUtils.makeFormula(new Float32FormulaCompiler().compile(js))
+      return {
+        d: d,
+        readable: g.getReadableFormula(),
+        v64: calculateValues(g.getFormulaObject()),
+        v32: calculateValues(f32)
+      }
+    }
+
+
+    async function run() {
+      const count = +document.getElementById("count").value
+      const dMin = +document.getElementById("dMin").value
+      const dMax = +document.getElementById("dMax").value
+      const uf = document.getElementById("userFunction").value.trim()
+      const progress = document.getElementById("progress")
+      samples = []
+      for (let k = 0; k < count; ++k) {
+        const d = dMin + (dMax - dMin) * Math.random()
+        try {
+          samples.push(makeSample(d, uf))
+        }
+        catch (e) {
+          console.warn("sample failed:", e)
+        }
+        progress.textContent = `${k + 1} / ${count}`
+        await new Promise(r => setTimeout(r, 0))
+      }
+      show()
+    }
+
+
+    function colorFunctionForMode() {
+      const [ir, neg, col, signed] = document.getElementById("mode").value.split(",").map(v => v === "1")
+      const cc = new PatternColorController()
+      cc.setPattern({ setColorFunction: () => {} })
+      cc.setDrawingOptions(new DrawingOptions(ir, neg, col, signed))
+      return cc.getColorFunction()
+    }
+
+
+    function colorize(values, cf) {
+      const c = new Uint32Array(values.length)
+      for (let i = 0; i < values.length; ++i)
+        c[i] = cf(values[i])
+      return c
+    }
+
+
+    function scored(cf) {
+      return samples.map(s => {
+        const c64 = colorize(s.v64, cf)
+        const c32 = colorize(s.v32, cf)
+        let differ = 0
+        for (let i = 0; i < c64.length; ++i)
+          if (c64[i] !== c32[i]) ++differ
+        const singleColor = c64.every(c => c === c64[0])
+        return { ...s, c64, c32, diff: differ / c64.length, singleColor }
+      })
+    }
+
+
+    function show() {
+      const results = scored(colorFunctionForMode()).filter(r => !r.singleColor)
+      results.sort((a, b) => b.diff - a.diff)
+      showHistogram(results)
+      const top = +document.getElementById("top").value
+      const grid = document.getElementById("grid")
+      grid.replaceChildren(...results.slice(0, top).map((r, i) => card(r, i + 1)))
+    }
+
+
+    function showHistogram(results) {
+      const buckets = [
+        ["identical", r => r.diff === 0],
+        ["< 1%", r => r.diff > 0 && r.diff < 0.01],
+        ["1 – 5%", r => r.diff >= 0.01 && r.diff < 0.05],
+        ["5 – 20%", r => r.diff >= 0.05 && r.diff < 0.2],
+        ["20 – 50%", r => r.diff >= 0.2 && r.diff < 0.5],
+        ["≥ 50%", r => r.diff >= 0.5]]
+      const h = document.getElementById("histogram")
+      h.replaceChildren()
+      buckets.forEach(([name, test]) => {
+        const n = results.filter(test).length
+        const bar = document.createElement("div")
+        bar.className = "bar"
+        bar.style.width = `${100 * n / Math.max(1, results.length)}%`
+        h.append(text(name), wrap(bar), text(`${n}`))
+      })
+      h.append(text("total"), text(""), text(`${results.length}`))
+    }
+
+
+    function card(r, rank) {
+      const div = document.createElement("div")
+      div.className = "card"
+      const title = document.createElement("div")
+      title.className = "title"
+      title.innerHTML = `#${rank} &nbsp; <b>${(100 * r.diff).toFixed(1)}%</b> pixels differ &nbsp; depth param ${r.d.toFixed(2)}`
+      const formula = document.createElement("div")
+      formula.className = "formula"
+      formula.textContent = r.readable
+      formula.title = r.readable
+
+      const diffMask = r.c64.map((c, i) => c === r.c32[i] ? dim(c) : ColorPacking.rgba(255, 60, 40))
+      const images = document.createElement("div")
+      images.className = "images"
+      images.append(figure(r.c64, "float64 (now)"), figure(r.c32, "float32 (shader)"), figure(diffMask, "difference"))
+      div.append(title, formula, images)
+      return div
+    }
+
+
+    function dim(c) {
+      const f = (v) => { return Math.round(v * 0.35) }
+      return ColorPacking.rgba(f(c & 0xff), f((c >>> 8) & 0xff), f((c >>> 16) & 0xff))
+    }
+
+
+    function figure(colors, caption) {
+      const canvas = document.createElement("canvas")
+      canvas.width = W
+      canvas.height = H
+      const ctx = canvas.getContext("2d")
+      const img = ctx.createImageData(W, H)
+      new Uint32Array(img.data.buffer).set(colors)
+      ctx.putImageData(img, 0, 0)
+      const fig = document.createElement("figure")
+      const cap = document.createElement("figcaption")
+      cap.textContent = caption
+      fig.append(canvas, cap)
+      return fig
+    }
+
+
+    function text(s) {
+      const span = document.createElement("span")
+      span.textContent = s
+      return span
+    }
+
+
+    function wrap(el) {
+      const div = document.createElement("div")
+      div.append(el)
+      return div
+    }
+
+
+    document.getElementById("run").onclick = run
+    document.getElementById("mode").onchange = () => { if (samples.length) show() }
+    document.getElementById("top").onchange = () => { if (samples.length) show() }
+  </script>
+</body>
+
+</html>
