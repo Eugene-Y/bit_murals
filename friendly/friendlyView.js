@@ -25,12 +25,12 @@ const ParamTips = {
     "e"   : "weight of exp among the built-in functions",
     "√"   : "weight of sqrt among the built-in functions",
     "tg"  : "weight of tan among the built-in functions",
+    "◉"   : "weight of primes among generated numbers (1/p below 1)",
+    "◎"   : "weight of powers of two among generated numbers",
+    "◒"   : "weight of fractions p/q with a small p or q among generated numbers",
+    "◐"   : "weight of plain numbers among generated numbers: the only kind before",
     "⛋"   : "chance of mirror symmetry of x and y around the center"
 }
-
-
-// The generator reads these from nowhere yet.
-const UnusedParams = ["◉", "◎", "◒", "◐"]
 
 
 
@@ -257,8 +257,6 @@ class FriendlyView {
             }))
         div.append(head)
         for (const [k, v] of this._controller.getParamKeysAndValues()) {
-            if (UnusedParams.includes(k))
-                continue
             const s = new BarSlider(k, new LinearScale(0, 1))
             s.setFillFromRight(true)
             s.setReadoutVisible(false)

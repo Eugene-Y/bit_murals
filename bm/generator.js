@@ -4,8 +4,12 @@
 class NumberGenerator {
     constructor (getParamValCallback) {
 		this._getParamValCallback = getParamValCallback
-		this._modes = ['primes', 'pow', 'rationals', 'random']
-        this._mode = 3
+		// the sliders weigh the kinds; [] sets the magnitude for all of them
+		this._kinds = [
+			{ param: "◉", name: "prime" },
+			{ param: "◎", name: "power of two" },
+			{ param: "◒", name: "rational" },
+			{ param: "◐", name: "random" }]
 		this._maxNumber = Math.pow(10, 10)
 		this._numberSparsity = 10
 		this._numberLogarithm = 10
@@ -57,6 +61,59 @@ class NumberGenerator {
 
 
 	number() {
+		let n = this.numberOfKind(this.pickKind(), this.randomMagnitude())
+		if (numUtils.prob(0.5))
+			n = -n
+		return n
+	}
+
+
+	pickKind() {
+		const weights = this._kinds.map(k => this._getParamValCallback(k.param))
+		let r = Math.random() * weights.reduce((a, b) => a + b, 0)
+		for (let i = 0; i < weights.length; ++i) {
+			r -= weights[i]
+			if (r < 0)
+				return this._kinds[i].name
+		}
+		return "random"
+	}
+
+
+	numberOfKind(kind, magnitude) {
+		switch (kind) {
+			case "prime"        : return this.primeNear(magnitude)
+			case "power of two" : return Math.pow(2, Math.round(Math.log2(magnitude)))
+			case "rational"     : return this.rationalNear(magnitude)
+		}
+		return magnitude
+	}
+
+
+	// A random prime of the same decade, or its inverse below 1.
+	primeNear(magnitude) {
+		const big = magnitude >= 1 ? magnitude : 1 / magnitude
+		const decade = Math.floor(Math.log10(big))
+		const row = this._primes[Math.min(this._primes.length - 1, Math.max(0, decade))]
+		const p = row[Math.floor(Math.random() * row.length)]
+		return magnitude >= 1 ? p : 1 / p
+	}
+
+
+	// p / q close to the magnitude, with a small numerator or denominator.
+	// Magnitudes are integers or powers of 1/2, so the +1 keeps p / q from
+	// collapsing back onto them.
+	rationalNear(magnitude) {
+		const small = this._nums[Math.floor(Math.random() * this._nums.length)]
+		if (magnitude >= 1)
+			return (Math.round(magnitude * small) + 1) / small
+		return small / (Math.round(small / magnitude) + 1)
+	}
+
+
+	// The only kind there was before: powers of 1/2 below the unity point
+	// of the [] slider, rounded powers of the sparsity base above it.
+	randomMagnitude() {
 		const unityPoint = 0.5
 		const paramVal = this._getParamValCallback("[]")
 		let n = 1
@@ -73,10 +130,6 @@ class NumberGenerator {
 			n = Math.pow(this._numberSparsity,  1 + r * d) // чем больше основание, тем более разрежены числа
 			n = Math.round(n)
 		}
-
-		if (numUtils.prob(0.5))
-			n = -n
-
 		return n
 	}
 
@@ -157,10 +210,10 @@ class Generator {
 		p.set("√",  new Param(0.25, 0, 0.7))
 		p.set("tg", new Param(0.25, 0, 0.7))
 
-		p.set("◉", new Param())
-		p.set("◎", new Param())
-		p.set("◒", new Param())
-		p.set("◐", new Param())
+		p.set("◉", new Param(0))
+		p.set("◎", new Param(0))
+		p.set("◒", new Param(0))
+		p.set("◐", new Param(1))
 
 		p.set("⛋", new Param(0, 0, 1))
 	}
