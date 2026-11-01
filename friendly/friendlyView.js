@@ -197,8 +197,8 @@ class FriendlyView {
                                         + "resizing the browser window keeps it  [f, shift+f back]", () => { this.nextFraming(1) })
         b.save      = this.button("save", "save the picture and a settings file  [↓]", () => { this.save() })
         b.load      = this.button("load", "load a settings file, or drop it on the page  [↑]", () => { this.load() })
-        b.sweep     = this.button("sweep", "run through the values: the histogram's non-empty bins one by one, "
-                                         + "from zero outward, with a fading trail. starts once the pattern is done  [p]",
+        b.sweep     = this.button("sweep", "run through the values from zero outward, skipping empty stretches, "
+                                         + "with a fading trail. starts once the pattern is done  [p]",
                                   () => { this.toggleSweep() })
         return this.section("buttons transport",
                             b.prev, b.next, b.play, b.randomize, b.mutate, b.framing, b.sweep, b.save, b.load)
@@ -519,8 +519,9 @@ class FriendlyView {
         const d = cc.getDrawingOptions().copy()
         d.window = false
         const h = this._histogram
-        const sweep = new ValueSweep(this._pattern.getValues(), (v) => h.binOf(v), h.numBins(),
-                                     cc.makeColorFunction(d), this._pattern.getBitmap())
+        const p = this._pattern
+        const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), h.numBins(),
+                                     cc.makeColorFunction(d), p.getBitmap())
         this._sweep = sweep.numSteps() ? sweep : null
         this.syncSweepButton()
     }
