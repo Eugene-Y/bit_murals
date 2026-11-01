@@ -8,16 +8,16 @@ class Pattern {
         this._H = h
         this._formula = null
         this._doneCallback = null
+        this._values = new Float64Array(w * h)
+        this._bitmap = new PatternBitmap(w, h)
         this._process = {
-            pos               : 0,
-            pointsCalculated  : 0,
-            numSteps          : 75, // TODO move to slideshow?
-            jump              : 5,
-            speedCoeff        : 1.0,
-            step              : 0,
-            savedCalculations : [],
-            dropSaved         : true
+            pointsCalculated : 0,
+            pointsShown      : 0,
+            numSteps         : 75, // TODO move to slideshow?
+            jump             : 5,
+            dropSaved        : true
         }
+        this._redrawFade = 10 / 255
         this._framing = new Framing(0, 0, 1)
         this.l = new Logger("Pattern")
         this.l.setActive(false)
@@ -29,21 +29,20 @@ class Pattern {
     getPercentReady() { return 100.0 * this._process.pointsCalculated / this.totalPoints() }
 
 
+    getBitmap() { return this._bitmap }
+
+
     getValueAt(x, y, f = null) {
         this.l.assert(x < this._W)
         this.l.assert(y < this._H)
-        const i = x + y * this._W
-        this.l.assert(i >= 0 && i < this.totalPoints())
-        const dontStop = function() { return false }
         if (!f) f = this._formula
-        return this.calculateNPoints(f, 1, i, 0, dontStop)[0].v
+        const fr = this._framing
+        const z = fr.zoom
+        return this.normalFix(f(fr.x0 + x * z, fr.y0 + y * z, this._W, this._H, z, fr.x0, fr.y0))
     }
 
 
-    done() {
-        let p = this._process
-        return p.step >= p.savedCalculations.length && p.pointsCalculated >= this.totalPoints()
-     }
+    done() { return this._process.pointsShown >= this.totalPoints() }
 
 
     setFormula(f) {
@@ -55,29 +54,6 @@ class Pattern {
 
 
     setColorFunction(f) { this._colorFunction = f }
-
-
-    adjustNumPointsPerDraw(t0, t1) {
-        return
-        //this.l.log("adjusting num points per draw")
-        const minFPS = 40
-        const desiredMs = 1000 / minFPS
-        const elapsedMs = t1 - t0
-
-        const oldppd = this.pointsInOneDraw()
-        const c = elapsedMs / minFPS
-        if (c <= 1)
-            return
-
-        this._process.speedCoeff /= c
-        const newppd = this.pointsInOneDraw()
-        const sc = newppd / oldppd
-
-        //if (sc > 1)
-        //    this.l.log("speed up by", sc.toFixed(2), ". points per draw:", newppd)
-        //else if (sc < 1)
-        //    this.l.log("slow down by", (1/sc).toFixed(2), ". points per draw:", newppd)
-    }
 
 
     setDoneCallback(f) {
@@ -125,6 +101,9 @@ class Pattern {
     }
 
 
+    // The pixels are visited in the order k * jump (mod total), with jump coprime
+    // to total: a full permutation that looks like noise, so the picture emerges
+    // evenly everywhere instead of line by line.
     pickJump(){
         let j = this._process.numSteps
         if (j % 2 === 0) ++j
@@ -133,6 +112,9 @@ class Pattern {
         this._process.jump = j
         this.l.log("jump =", j)
     }
+
+
+    pixelIndex(k) { return (k * this._process.jump) % this.totalPoints() }
 
 
     gcd(x, y) {
@@ -156,6 +138,8 @@ class Pattern {
         this.l.log("set w & h:", w, h)
         this._W = w
         this._H = h
+        this._values = new Float64Array(w * h)
+        this._bitmap.resize(w, h)
         this.pickJump()
         this._process.dropSaved = true
         return 1
@@ -165,61 +149,33 @@ class Pattern {
     startRedraw(){
         this.l.log("redraw")
         this.resetProcess()
+        this._bitmap.fadeToBackground(this._redrawFade)
     }
 
 
+    // Without dropSaved the already calculated values are only recolored,
+    // in the same order and at the same pace as they were revealed.
     resetProcess(){
         this.l.log("reset process")
         let p = this._process
         if (p.dropSaved) {
-            p.pos = 0
             p.pointsCalculated = 0
-            p.speedCoeff = 1.0
-            p.savedCalculations = []
             p.dropSaved = false
-            //this.l.log("dropped calculated")
         }
-        p.step = 0
+        p.pointsShown = 0
     }
 
 
-    draw(canvas, callCallbackOnDone = false){
+    draw(silent = false){
         if (this.done())
             return
 
-        canvas.push()
-        const t0 = performance.now()
-        const calculated = this.updateProcess(callCallbackOnDone)
-        this.drawCalculatedVals(canvas, calculated)
-        const t1 = performance.now()
-        if (this.calculatedNewVals())
-            this.adjustNumPointsPerDraw(t0, t1)
-        canvas.pop()
-    }
+        const p = this._process
+        const n = this.pointsInOneDraw()
+        if (p.pointsShown >= p.pointsCalculated)
+            this.calculatePoints(n)
+        this.showPoints(Math.min(n, p.pointsCalculated - p.pointsShown))
 
-
-    pointsInOneDraw() {
-        const n = this.totalPoints() / this._process.numSteps
-        let ppd = n * this._process.speedCoeff
-        ppd = Math.max(5, ppd)
-        ppd = Math.min(n, ppd)
-        ppd = Math.ceil(ppd)
-        return ppd
-    }
-
-
-    drawCalculatedVals(canvas, vals) {
-        this.l.assert(vals.length)
-        canvas.strokeWeight(1)
-        vals.forEach(p => {
-            canvas.stroke(this._colorFunction(p.v, canvas))
-            canvas.point(p.x, p.y)
-            })
-    }
-
-
-    updateProcess(silent){
-        const calculated = this.getCalculatedVals()
         if (!silent && this.done()) {
             this.l.log("done")
             if (this._doneCallback)
@@ -227,55 +183,40 @@ class Pattern {
             else
                 this.l.log("no done callback")
         }
-        return calculated
     }
 
 
-    calculatedNewVals() {
-        return this._process.step >= this._process.savedCalculations.length
-    }
+    pointsInOneDraw() { return Math.ceil(this.totalPoints() / this._process.numSteps) }
 
 
-    getCalculatedVals() {
-        let p = this._process
-        let calculated = []
-        if (p.step < p.savedCalculations.length) {
-            calculated = p.savedCalculations[p.step]
-            ++p.step
-        }
-        else {
-            const stopWhenDone = () => { return this.done() }
-            calculated = this.calculateNPoints(this._formula,
-                                               this.pointsInOneDraw(),
-                                               p.pos, p.jump, stopWhenDone)
-            p.pos += calculated.length * p.jump
-            p.pointsCalculated += calculated.length
-            p.savedCalculations[p.step] = calculated
-            ++p.step
-            }
-        return calculated
-    }
-
-
-    calculateNPoints(formula, numPoints, startPos, jump, stopCondition) {
+    calculatePoints(n) {
+        const p = this._process
+        const end = Math.min(this.totalPoints(), p.pointsCalculated + n)
         const w = this._W
         const h = this._H
         const z = this._framing.zoom
-	    const x0 = this._framing.x0
+        const x0 = this._framing.x0
         const y0 = this._framing.y0
-
-        let calculated = new Array(numPoints).fill(0)
-        let i = 0
-        for (i; i < numPoints && !stopCondition(); ++i) {
-            const x = startPos % w
-            const y = (Math.floor(startPos / w)) % h
-            let v = formula(x0 + x * z, y0 + y * z, w, h, z, x0, y0)
-            v = this.normalFix(v)
-            calculated[i] = { v: v, x: x, y: y}
-            startPos += jump
+        const f = this._formula
+        for (let k = p.pointsCalculated; k < end; ++k) {
+            const i = this.pixelIndex(k)
+            const x = i % w
+            const y = (i - x) / w
+            this._values[i] = this.normalFix(f(x0 + x * z, y0 + y * z, w, h, z, x0, y0))
         }
-        //this.l.log("calculated", i, "vals")
-        return calculated
+        p.pointsCalculated = end
+    }
+
+
+    showPoints(n) {
+        const p = this._process
+        const end = p.pointsShown + n
+        const cf = this._colorFunction
+        for (let k = p.pointsShown; k < end; ++k) {
+            const i = this.pixelIndex(k)
+            this._bitmap.setPixel(i, cf(this._values[i]))
+        }
+        p.pointsShown = end
     }
 
 
@@ -291,4 +232,3 @@ class Pattern {
 
 
   }
-

@@ -184,9 +184,9 @@ class PatternColorController {
         const hf = this.makeHueFunc(d)
         const sf = this.makeSaturationFunc(d)
         const bf = this.makeBrightnessFunc(d)
-        const cf = (p, canvas) => {
+        const cf = (p) => {
             const b = bf(p)
-            return canvas.color(hf(p), sf(b), b)
+            return ColorPacking.hsb(hf(p), sf(b), b)
         }
         this._colorFunction = cf
         this._pattern.setColorFunction(cf)

@@ -16,7 +16,6 @@ class View {
         this._sliders    = []
         this._touchZones = {}
         this._userInputs = []
-        this._patternCanvas = null
         this._noiseCanvas = null
         this._noiseCanvasSide = 500
         this._panning       = false
@@ -53,7 +52,7 @@ class View {
 
         this._pattern.setDoneCallback(() => { this.onPatternDone() })
 
-        this.createPatternAndNoiseCanvases()
+        this.createNoiseCanvas()
         this.createSliders()
         this.createTouchZones()
         this.createUserInputs()
@@ -105,10 +104,7 @@ class View {
     }
 
 
-    createPatternAndNoiseCanvases(w, h) {
-        let p = this._g.createGraphics(1, 1)
-        p.colorMode(p.HSB, 255)
-        this._patternCanvas = p
+    createNoiseCanvas() {
         let n = this._g.createGraphics(this._noiseCanvasSide, this._noiseCanvasSide)
         n.colorMode(n.HSB, 255)
         this._noiseCanvas = n
@@ -291,7 +287,6 @@ class View {
         if (patternUpd) {
             this.startRedrawPattern()
             const [w, h] = l.getPatternRectWH()
-            this.resizePatternCanvas(w, h)
             this._pattern.setWidthAndHeight(w, h)
         }
 
@@ -352,20 +347,14 @@ class View {
 
 
     getPatternImage() {
-        let pc = this._patternCanvas
-        let ic = this._g.createGraphics(pc.width, pc.height)
+        const [w, h] = this._pattern.getWidthAndHight()
+        let ic = this._g.createGraphics(w, h)
         while (!this._pattern.done())
-            this._pattern.draw(pc, true)
-        ic.image(pc, 0, 0)
+            this._pattern.draw(true)
+        this._pattern.getBitmap().drawTo(ic.drawingContext, 0, 0)
         this.drawNoise(ic, ic.width, ic.height)
         let img = ic.get()
         return img
-    }
-
-
-    resizePatternCanvas(w, h){
-        this.l.log("resizing pattern canvas:", w, h)
-        this._patternCanvas.resizeCanvas(w, h, false)
     }
 
 
@@ -415,10 +404,9 @@ class View {
 
 
     drawPattern(){
-        let c = this._patternCanvas
-        this._pattern.draw(c)
+        this._pattern.draw()
         const [ox, oy] = this._layout.getPatternRectOffsets()
-        this._g.image(c, ox, oy)
+        this._pattern.getBitmap().drawTo(this._g.drawingContext, ox, oy)
     }
 
 
@@ -473,14 +461,8 @@ class View {
 
 
     startRedrawPattern(){
-        let c = this._patternCanvas
         this._info.setDrawingStatus(true)
-        this._pattern.startRedraw(c)
-        c.push()
-        c.fill(0, 0, 40, 10)
-        c.noStroke()
-        c.rect(0, 0, c.width, c.height)
-        c.pop()
+        this._pattern.startRedraw()
     }
 
 
