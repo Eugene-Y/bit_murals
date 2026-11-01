@@ -49,11 +49,12 @@ html, body {
     box-sizing: border-box;
     height: 100%;
     overflow-y: auto;
-    padding: 12px 14px 24px 4px;
+    padding: 12px 14px 12px 4px;
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
+#panel > * { flex: none; }
 
 .header { display: flex; justify-content: space-between; align-items: baseline; }
 .header .title { color: var(--text); letter-spacing: 0.2em; text-transform: uppercase; }
@@ -86,7 +87,7 @@ html, body {
 
 .buttons { display: grid; gap: 3px; }
 .transport { grid-template-columns: repeat(8, 1fr); }
-.modes { grid-template-columns: repeat(6, 1fr); }
+.modes { grid-template-columns: repeat(5, 1fr); }
 .btn {
     font: inherit;
     color: var(--text);
@@ -105,6 +106,7 @@ html, body {
 .window-row { display: flex; gap: 3px; }
 .window-row .bar-slider { flex: 1; }
 .window-row .btn { width: 40px; }
+.tone-caption { color: var(--text-dim); }
 
 .bar-slider {
     position: relative;
@@ -144,10 +146,21 @@ html, body {
     outline: none;
 }
 
-.generator { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+/* the list scrolls on its own and takes what height is left */
+#panel > .generator {
+    flex: 1 1 0;
+    min-height: 160px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+}
+.generator > * { flex: none; }
+.generator-head { position: sticky; top: 0; background: var(--bg); z-index: 1; padding-bottom: 2px; }
 .generator .bar-slider { height: 15px; background: transparent; }
 .generator .bar-slider .label { top: 1px; }
-.generator-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+.generator-head { display: flex; justify-content: space-between; align-items: center; }
 .generator-head .caption { color: var(--text-dim); }
 .generator-head .btn { padding: 2px 10px; }
 
@@ -169,5 +182,5 @@ html, body {
     #pattern-area { flex: none; height: 100vw; }
     #panel { width: 100%; height: auto; overflow: visible; padding: 12px 16px 32px; }
     .transport { grid-template-columns: repeat(4, 1fr); }
-    .modes { grid-template-columns: repeat(3, 1fr); }
+    #panel > .generator { flex: none; overflow: visible; }
 }

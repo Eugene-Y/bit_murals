@@ -57,6 +57,8 @@ class FriendlyView {
         this._paramSliders = new Map()
         this._userInputs = []
         this._recolorPending = false
+        this._autoWindow = true
+        this._sampleSize = 1000
         this.l = new Logger("Friendly View")
     }
 
@@ -99,8 +101,8 @@ class FriendlyView {
             this.buildTransport(),
             this.buildModes(),
             this.buildTone(),
-            this.buildGeneratorSliders(),
-            this.buildHints())
+            this.buildHints(),
+            this.buildGeneratorSliders())
     }
 
 
@@ -174,8 +176,8 @@ class FriendlyView {
     buildTransport() {
         const b = this._buttons
         b.prev      = this.button("◀", "previous pattern  [←]", () => { this.stopSlideshow(); this.prevPattern() })
-        b.play      = this.button("▶", "slideshow  [a]", () => { this.toggleSlideshow() })
-        b.next      = this.button("▶▶", "next pattern  [→]", () => { this.stopSlideshow(); this.nextPattern() })
+        b.play      = this.button("play", "slideshow: a new pattern every couple of seconds  [a]", () => { this.toggleSlideshow() })
+        b.next      = this.button("▶", "next pattern  [→]", () => { this.stopSlideshow(); this.nextPattern() })
         b.randomize = this.button("rnd", "randomize the generator sliders and make a new pattern  [r]",
                                   () => { this.stopSlideshow(); this.randomize() })
         b.mutate    = this.button("mut", "mutate the current formula a bit  [m]\n1…6: numbers, operand, function, operation, branches, brackets",
@@ -184,23 +186,24 @@ class FriendlyView {
         b.save      = this.button("save", "save the picture and a settings file  [↓]", () => { this.save() })
         b.load      = this.button("load", "load a settings file, or drop it on the page  [↑]", () => { this.load() })
         return this.section("buttons transport",
-                            b.prev, b.play, b.next, b.randomize, b.mutate, b.framing, b.save, b.load)
+                            b.prev, b.next, b.play, b.randomize, b.mutate, b.framing, b.save, b.load)
     }
 
 
     buildModes() {
         const b = this._buttons
-        b.plain    = this.button("plain", "black and white: zero vs non-zero", () => { this.setMode("plain") })
-        b.infrared = this.button("infra", "brightness cycles with the value: |v·amp + offset| mod 200  [i]",
-                                 () => { this.setMode("infrared") })
+        b.infrared = this.button("infra", "brightness cycles with the value: |v·amp + offset| mod 200. "
+                                        + "off: black and white, zero vs non-zero  [i]",
+                                 () => { this.toggleMode("infrared") })
         b.window   = this.button("window", "MRI-style window: dark below center − delta, bright above center + delta, "
-                                         + "a ramp in between  [w]", () => { this.setMode("window") })
+                                         + "a ramp in between. off: black and white  [w]",
+                                 () => { this.toggleMode("window") })
         b.signed   = this.button("sign", "plain: negative dark, positive bright. infra: around a middle gray  [s]",
                                  () => { this.toggleDrawingOption("signed") })
         b.negative = this.button("neg", "invert the brightness  [n]", () => { this.toggleDrawingOption("negative") })
         b.colored  = this.button("color", "hue from the value: |v·hue amp + hue offset| mod 255  [c]",
                                  () => { this.toggleDrawingOption("colored") })
-        return this.section("buttons modes", b.plain, b.infrared, b.window, b.signed, b.negative, b.colored)
+        return this.section("buttons modes", b.infrared, b.window, b.signed, b.negative, b.colored)
     }
 
 
@@ -210,22 +213,34 @@ class FriendlyView {
 
         s.amp = this.toneSlider("amp", new LogScale(-300, 300), 1, (v) => cc.setBrightnessAmp(v))
         s.offset = this.toneSlider("offset", new SymLogScale(), 0, (v) => cc.setBrightnessOffset(v))
-        s.center = this.toneSlider("center", new SymLogScale(), 0, (v) => cc.setWindowCenter(v))
-        s.center.setTooltip("the value in the middle of the window")
-        s.delta = this.toneSlider("delta", new LogScale(-300, 308), 1, (v) => cc.setWindowDelta(v))
-        s.delta.setTooltip("half the width of the window")
+        const manualWindow = (setter) => { return (v) => { this.setAutoWindow(false); setter(v) } }
+        s.center = this.toneSlider("center", new SymLogScale(), 0, manualWindow((v) => cc.setWindowCenter(v)))
+        s.center.setTooltip("the value in the middle of the window. the scale is logarithmic in |value|: "
+                          + "left half negative, right half positive, 0 in the middle")
+        s.delta = this.toneSlider("delta", new LogScale(-300, 308), 1, manualWindow((v) => cc.setWindowDelta(v)))
+        s.delta.setTooltip("half the width of the window, from 1e-300 to 1e308 on a log scale")
         s.hueAmp = this.toneSlider("hue amp", new LogScale(-300, 300), 1, (v) => cc.setHueAmp(v))
         s.hueAmp.setTooltip("values are multiplied by this before the hue is taken")
         s.hueOffset = this.toneSlider("hue offset", new SymLogScale(), 0, (v) => cc.setHueOffset(v))
         s.hueOffset.setTooltip("added after the hue amp, before mod 255")
 
-        this._buttons.fit = this.button("fit", "put the window over the middle half of the values", () => { this.fitWindow() })
+        this._buttons.fit = this.button("fit", "once: center on the median value, "
+                                             + "delta over the middle half of the values", () => { this.fitWindow() })
+        this._buttons.auto = this.button("auto", "fit the window to every new pattern, pan and zoom. "
+                                               + "moving center or delta turns it off", () => {
+            this.setAutoWindow(!this._autoWindow)
+            if (this._autoWindow)
+                this.fitWindow()
+        })
         this._histogram.element().addEventListener("pointerdown", () => { this.stopSlideshow() })
 
         const fine = this.text("hint", "drag · shift+drag fine · wheel · 2× click default · click the number to type")
-        this._windowRow = this.section("window-row", s.center.element(), s.delta.element(), this._buttons.fit)
+        this._toneCaption = this.text("tone-caption")
+        this._windowRow = this.section("window-row", s.center.element(), s.delta.element(),
+                                       this._buttons.fit, this._buttons.auto)
         return this.section("tone",
                             this._histogram.element(),
+                            this._toneCaption,
                             s.amp.element(), s.offset.element(),
                             this._windowRow,
                             s.hueAmp.element(), s.hueOffset.element(),
@@ -261,6 +276,7 @@ class FriendlyView {
             s.setFillFromRight(true)
             s.setReadoutVisible(false)
             s.setFineStep(0.002, 0.02)
+            s.setWheelEnabled(false)
             s.setDefaultValue(params.get(k).defaultVal)
             s.setValue(v)
             s.onChange((val) => {
@@ -313,13 +329,13 @@ class FriendlyView {
         const d = this._colorController.getDrawingOptions()
         const b = this._buttons
         const mode = this.mode()
-        b.plain.classList.toggle("on", mode === "plain")
         b.infrared.classList.toggle("on", mode === "infrared")
         b.window.classList.toggle("on", mode === "window")
         b.signed.classList.toggle("on", d.signed)
         b.negative.classList.toggle("on", d.negative)
         b.colored.classList.toggle("on", d.colored)
         b.signed.classList.toggle("idle", mode === "window")
+        b.auto.classList.toggle("on", this._autoWindow)
 
         const s = this._toneSliders
         s.amp.setValue(d.brightnessAmp)
@@ -346,6 +362,26 @@ class FriendlyView {
             s.offset.setTooltip("added after the amp: shifts the brightness cycles")
         }
         this.syncHistogramMark()
+        this.syncToneCaption()
+    }
+
+
+    syncToneCaption() {
+        const d = this._colorController.getDrawingOptions()
+        const n = ScaleUtils.formatNumber
+        const mode = this.mode()
+        let s = ""
+        if (mode === "window") {
+            const [dark, bright] = d.negative ? ["bright", "dark"] : ["dark", "bright"]
+            s = `${dark} below ${n(d.windowCenter - d.windowDelta)} · ramp · ${bright} above ${n(d.windowCenter + d.windowDelta)}`
+        }
+        else if (mode === "infrared")
+            s = `one brightness cycle per ${n(200 / Math.abs(d.brightnessAmp))} of value`
+        else {
+            const t = Math.abs(d.brightnessOffset / d.brightnessAmp)
+            s = t > 0 ? `dark: |value| below ${n(t)} · bright: the rest` : "dark: exactly zero · bright: the rest"
+        }
+        this._toneCaption.textContent = s
     }
 
 
@@ -355,8 +391,11 @@ class FriendlyView {
         const mode = this.mode()
         if (mode === "window") {
             h.setMark([d.windowCenter - d.windowDelta, d.windowCenter + d.windowDelta])
-            h.onPick((v) => { this._colorController.setWindowCenter(v); this.onColorChange() },
-                     "click: center the window here")
+            h.onPick((v) => {
+                this.setAutoWindow(false)
+                this._colorController.setWindowCenter(v)
+                this.onColorChange()
+            }, "click: center the window here")
         }
         else if (mode === "plain") {
             const t = Math.abs(d.brightnessOffset / d.brightnessAmp)
@@ -389,7 +428,7 @@ class FriendlyView {
         const playing = this._slideshow.isPlaying()
         const percent = p >= 100 ? "100%" : `${p.toFixed(1)}%`
         this._infoStatus.textContent = `#${this._controller.getPatternNumber()}   ${percent}   ${playing ? "slideshow" : ""}`
-        this._buttons.play.textContent = playing ? "❚❚" : "▶"
+        this._buttons.play.textContent = playing ? "pause" : "play"
         this._buttons.play.classList.toggle("on", playing)
     }
 
@@ -401,8 +440,30 @@ class FriendlyView {
         this.syncDrawingControls()
         this.syncGeneratorSliders()
         this.syncUserFunctions()
-        this._histogram.clear()
+        this.onValuesChange()
         this._pattern.startRedraw()
+    }
+
+
+    // The histogram and the auto window can't wait for the whole pattern, so
+    // they start from a quick sample calculated here.
+    onValuesChange() {
+        const sample = this.sampleValues()
+        this._histogram.setValues(sample)
+        if (this._autoWindow && this.mode() === "window")
+            this.fitWindowTo(sample)
+    }
+
+
+    // The generator's formula is the pattern's one, and it exists even before
+    // the first pattern is set up.
+    sampleValues() {
+        const [w, h] = this._pattern.getWidthAndHight()
+        const f = this._generator.getFormulaObject()
+        const sample = new Float64Array(this._sampleSize)
+        for (let i = 0; i < sample.length; ++i)
+            sample[i] = this._pattern.getValueAt(Math.floor(Math.random() * w), Math.floor(Math.random() * h), f)
+        return sample
     }
 
 
@@ -415,7 +476,7 @@ class FriendlyView {
 
     onFramingChange() {
         this._pattern.startRedraw()
-        this._histogram.clear()
+        this.onValuesChange()
         this.syncInfo()
     }
 
@@ -477,16 +538,22 @@ class FriendlyView {
     }
 
 
-    setMode(mode) {
+    // infrared and window exclude each other; with both off it's black and white
+    toggleMode(mode) {
         this.stopSlideshow()
+        const next = this.mode() === mode ? "plain" : mode
         const cc = this._colorController
-        const d = cc.getDrawingOptions()
-        const untouchedWindow = d.windowCenter === 0 && d.windowDelta === 1
-        cc.setInfrared(mode === "infrared")
-        cc.setWindow(mode === "window")
-        if (mode === "window" && untouchedWindow)
+        cc.setInfrared(next === "infrared")
+        cc.setWindow(next === "window")
+        if (next === "window" && this._autoWindow)
             this.fitWindow()
         this.onColorChange()
+    }
+
+
+    setAutoWindow(on) {
+        this._autoWindow = on
+        this._buttons.auto.classList.toggle("on", on)
     }
 
 
@@ -501,10 +568,14 @@ class FriendlyView {
     }
 
 
-    // Center on the median, delta over the middle half of the values shown so far.
-    // Overflows (stored as ±MAX_VALUE) would drag the window to the ends.
     fitWindow() {
-        const values = this._pattern.getValues()
+        this.fitWindowTo(this._pattern.done() ? this._pattern.getValues() : this.sampleValues())
+    }
+
+
+    // Center on the median, delta over the middle half of the values.
+    // Overflows (stored as ±MAX_VALUE) would drag the window to the ends.
+    fitWindowTo(values) {
         const picks = Math.min(values.length, 20000)
         let sample = []
         for (let j = 0; j < picks; ++j) {
@@ -651,8 +722,8 @@ class FriendlyView {
                 "a": () => { this.toggleSlideshow() },
                 "r": () => { this.stopSlideshow(); this.randomize() },
                 "m": () => { this.stopSlideshow(); this.mutate() },
-                "i": () => { this.setMode(this.mode() === "infrared" ? "plain" : "infrared") },
-                "w": () => { this.setMode(this.mode() === "window" ? "plain" : "window") },
+                "i": () => { this.toggleMode("infrared") },
+                "w": () => { this.toggleMode("window") },
                 "s": () => { this.toggleDrawingOption("signed") },
                 "n": () => { this.toggleDrawingOption("negative") },
                 "c": () => { this.toggleDrawingOption("colored") },

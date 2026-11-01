@@ -5,7 +5,7 @@
 // A slider drawn as a gray bar, like the ones in the classic page.
 //   drag            - jump to the pointer
 //   shift + drag    - fine, relative to where the drag started
-//   wheel           - fine step, shift + wheel - 10 times coarser
+//   wheel           - fine step, shift + wheel - 10 times coarser (if enabled)
 //   double click    - default value
 //   click on number - type a value
 class BarSlider {
@@ -15,6 +15,7 @@ class BarSlider {
         this._defaultValue = this._value
         this._fineUnitsPerPx = 0.01
         this._wheelUnits = 0.1
+        this._wheelEnabled = true
         this._format = ScaleUtils.formatNumber
         this._onChange = () => {}
 
@@ -55,6 +56,9 @@ class BarSlider {
         this._fineUnitsPerPx = unitsPerPx
         this._wheelUnits = wheelUnits
     }
+
+    // Off where the slider sits in a scrolling list: the wheel should scroll it.
+    setWheelEnabled(on) { this._wheelEnabled = on }
 
     setDefaultValue(v) { this._defaultValue = v }
 
@@ -117,6 +121,8 @@ class BarSlider {
         })
         this._el.addEventListener("pointerup", (e) => { this._el.releasePointerCapture(e.pointerId) })
         this._el.addEventListener("wheel", (e) => {
+            if (!this._wheelEnabled)
+                return
             e.preventDefault()
             const steps = e.deltaY < 0 ? 1 : -1
             const units = this._scale.toUnits(this._value) + steps * this._wheelUnits * (e.shiftKey ? 10 : 1)
