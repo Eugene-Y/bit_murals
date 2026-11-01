@@ -12,7 +12,7 @@ function patternWorkerMain() {
         const m = e.data
         if (m.type === "job") {
             job = m.job
-            formula = new Function(...m.args, m.body)
+            formula = new Function(m.source)()
             return
         }
 
@@ -70,10 +70,10 @@ class PatternWorkers {
     available() { return this._workers.length > 0 }
 
 
-    startJob(job, body) {
+    startJob(job, formulaSource) {
         this._job = job
         this._nextStart = 0
-        const m = { type: "job", job: job, body: body, args: FuncUtils.formulaArgs }
+        const m = { type: "job", job: job, source: formulaSource }
         this._workers.forEach(w => w.postMessage(m))
         this.keepBusy()
     }

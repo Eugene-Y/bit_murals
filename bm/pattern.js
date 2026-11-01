@@ -42,7 +42,7 @@ class Pattern {
         this._W = w
         this._H = h
         this._formula = null
-        this._formulaBody = null
+        this._formulaSource = null
         this._doneCallback = null
         this._values = new Float64Array(w * h)
         this._bitmap = new PatternBitmap(w, h)
@@ -84,10 +84,10 @@ class Pattern {
     done() { return this._process.pointsShown >= this.totalPoints() }
 
 
-    setFormula(f, body) {
+    setFormula(f, source) {
         this.l.logg("set formula")
         this._formula = f
-        this._formulaBody = body
+        this._formulaSource = source
         this._process.dropSaved = true
         this.l.loge()
     }
@@ -202,13 +202,13 @@ class Pattern {
             p.receivedChunks.clear()
             ++p.gen
             if (this.calculatesInWorkers())
-                this._workers.startJob(this.makeJob(), this._formulaBody)
+                this._workers.startJob(this.makeJob(), this._formulaSource)
         }
         p.pointsShown = 0
     }
 
 
-    calculatesInWorkers() { return this._workers.available() && this._formulaBody !== null }
+    calculatesInWorkers() { return this._workers.available() && this._formulaSource !== null }
 
 
     makeJob() {

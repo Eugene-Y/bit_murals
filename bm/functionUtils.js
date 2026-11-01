@@ -109,21 +109,31 @@ const FuncUtils = {
 	formulaArgs: ["x", "y", "w", "h", "z", "x0", "y0"],
 
 
-	// The body is returned too: workers rebuild the same function from it.
+	// The source is returned too: workers rebuild the same function from it.
 	compileFormula: (str) => {
-		let body = "return " + str
+		const compiler = new FormulaCompiler()
+		let plain = compiler.plainSource(str)
 		try {
-			return [body, FuncUtils.makeFormula(body)]
+			FuncUtils.makeFormula(plain)
 		}
 		catch (e) {
 			FuncUtils.l.warn("failed to make formula from string", e.message)
-			body = "return false"
-			return [body, FuncUtils.makeFormula(body)]
+			plain = compiler.plainSource("false")
+			return [plain, FuncUtils.makeFormula(plain)]
+		}
+
+		const source = compiler.compile(str)
+		try {
+			return [source, FuncUtils.makeFormula(source)]
+		}
+		catch (e) {
+			FuncUtils.l.error("compiled formula is broken, using the plain one:", e.message)
+			return [plain, FuncUtils.makeFormula(plain)]
 		}
 	},
 
 
-	makeFormula: (body) => { return new Function(...FuncUtils.formulaArgs, body) }
+	makeFormula: (source) => { return new Function(source)() }
 }
 
 

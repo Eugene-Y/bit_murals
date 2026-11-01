@@ -59,7 +59,7 @@ class Controller {
 
     setCurrentFormulaToPattern() {
         const g = this._generator
-        this._pattern.setFormula(g.getFormulaObject(), g.getFormulaBody())
+        this._pattern.setFormula(g.getFormulaObject(), g.getFormulaSource())
     }
 
 
