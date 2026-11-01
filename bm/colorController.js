@@ -7,7 +7,7 @@ class DrawingOptions {
         col = false, signed = false,
         hueAmp = 1, hueOffset = 0,
         brightnessAmp = 1, brightnessOffset = 0,
-        window = false, windowCenter = 0, windowDelta = 1) {
+        window = false, windowCenter = 0, windowDecades = 1) {
         this.infrared = ir
         this.negative = neg
         this.colored = col
@@ -18,7 +18,7 @@ class DrawingOptions {
         this.brightnessOffset = brightnessOffset
         this.window = window
         this.windowCenter = windowCenter
-        this.windowDelta = windowDelta
+        this.windowDecades = windowDecades
     }
 
 
@@ -27,7 +27,7 @@ class DrawingOptions {
             this.infrared, this.negative, this.colored, this.signed,
             this.hueAmp, this.hueOffset,
             this.brightnessAmp, this.brightnessOffset,
-            this.window, this.windowCenter, this.windowDelta)
+            this.window, this.windowCenter, this.windowDecades)
     }
 
 
@@ -43,7 +43,7 @@ class DrawingOptions {
         // settings saved before the window mode existed don't have these
         this.window = d.window ?? false
         this.windowCenter = d.windowCenter ?? 0
-        this.windowDelta = d.windowDelta ?? 1
+        this.windowDecades = d.windowDecades ?? 1
     }
 }
 
@@ -61,6 +61,8 @@ class PatternColorController {
         this._saturation = 100
         this._offsetStep = 8
         this._ampStep = Math.pow(2, 0.25)
+        this._valueAxis = new SymLogScale()
+        this._thresholdInPlainMode = true
         this.l = new Logger("Color Controller")
     }
 
@@ -76,6 +78,50 @@ class PatternColorController {
 
     setDrawingOptions(d) {
         this._drawingOptions.set(d)
+        this.updateColorFunction()
+    }
+
+
+    // Without infrared, brightness offset / amp acts as a threshold: |value|
+    // below it is dark. The window does the same and more, so a UI may drop
+    // the threshold and turn the one of old settings into a window.
+    useWindowInsteadOfThreshold() {
+        this._thresholdInPlainMode = false
+        this.updateColorFunction()
+    }
+
+
+    // Close, not exact: the inside of the window gets a ramp instead of being flat.
+    convertThresholdToWindow() {
+        const d = this._drawingOptions
+        const t = Math.abs(d.brightnessOffset / d.brightnessAmp)
+        if (d.infrared || d.window || !(t > 0))
+            return
+        d.window = true
+        d.windowCenter = 0
+        d.windowDecades = this._valueAxis.toUnits(t)
+        d.negative = !d.negative
+        d.brightnessOffset = 0
+        d.brightnessAmp = 1
+        this.updateColorFunction()
+    }
+
+
+    // [from, to]: the window is symmetric on the symlog value axis, not in values
+    getWindowRange() {
+        const d = this._drawingOptions
+        const axis = this._valueAxis
+        const c = axis.toUnits(d.windowCenter)
+        return [axis.fromUnits(c - d.windowDecades), axis.fromUnits(c + d.windowDecades)]
+    }
+
+
+    setWindowRange(from, to) {
+        const axis = this._valueAxis
+        const a = axis.toUnits(from)
+        const b = axis.toUnits(to)
+        this._drawingOptions.windowCenter = axis.fromUnits((a + b) / 2)
+        this._drawingOptions.windowDecades = Math.abs(b - a) / 2
         this.updateColorFunction()
     }
 
@@ -229,8 +275,9 @@ class PatternColorController {
     }
 
 
-    setWindowDelta(d) {
-        this._drawingOptions.windowDelta = d
+    // half the window's width on the symlog axis: decades, for |values| above 1e-300
+    setWindowDecades(w) {
+        this._drawingOptions.windowDecades = w
         this.updateColorFunction()
     }
 
@@ -270,15 +317,15 @@ class PatternColorController {
     }
 
 
-    // MRI-style window: only values within center ± delta are drawn, the rest
-    // is background. center + delta can round to center when delta is far
-    // smaller, so the distance is measured from the center.
+    // MRI-style window: only values within center ± decades on the symlog
+    // axis are drawn, the rest is background.
     limitToWindow(drawingOptions, colorInside) {
         const d = drawingOptions
-        const center = d.windowCenter
-        const delta = d.windowDelta
+        const axis = this._valueAxis
+        const center = axis.toUnits(d.windowCenter)
+        const decades = d.windowDecades
         const outside = ColorPacking.gray(d.negative ? this._hiBrightness : this._lowBrightness)
-        return (p) => { return Math.abs(p - center) > delta ? outside : colorInside(p) }
+        return (p) => { return Math.abs(axis.toUnits(p) - center) > decades ? outside : colorInside(p) }
     }
 
 
@@ -424,16 +471,17 @@ class PatternColorController {
     }
 
 
-    // Inside the window without infrared: dark at center - delta, bright at
-    // center + delta. Amp and offset don't apply here.
+    // Inside the window without infrared: dark at its low end, bright at the
+    // high one. Amp and offset don't apply here.
     makeWindowRampFunc(drawingOptions) {
         const d = drawingOptions
         const low = this._lowBrightness
         const range = this._hiBrightness - low
-        const center = d.windowCenter
-        const width = 2 * d.windowDelta
+        const axis = this._valueAxis
+        const center = axis.toUnits(d.windowCenter)
+        const width = Math.max(2 * d.windowDecades, Number.MIN_VALUE)
         const ramp = (p) => {
-            const t = 0.5 + (p - center) / width
+            const t = 0.5 + (axis.toUnits(p) - center) / width
             return t <= 0 ? 0 : (t >= 1 ? 1 : t)
         }
         if (d.negative)
@@ -454,17 +502,18 @@ class PatternColorController {
         }
 
         else {
+            const threshold = this._thresholdInPlainMode ? Math.abs(d.brightnessOffset) : 0
             if (d.negative)
                 map = (p) => {
                     if (p == 0) p = Number.MAX_VALUE
-                    else if (Math.abs(p * d.brightnessAmp) > Math.abs(d.brightnessOffset))
+                    else if (Math.abs(p * d.brightnessAmp) > threshold)
                         p = 0
                     return p
                 }
 
             else
                 map = (p) => {
-                    if (Math.abs(p * d.brightnessAmp) < Math.abs(d.brightnessOffset))
+                    if (Math.abs(p * d.brightnessAmp) < threshold)
                         p = 0
                     return p
                 }

@@ -59,6 +59,8 @@ class FriendlyView {
         this._recolorPending = false
         this._autoWindow = true
         this._sampleSize = 1000
+        this._valueAxis = new SymLogScale()
+        this._minWindowDecades = 1e-4
         this.l = new Logger("Friendly View")
     }
 
@@ -66,7 +68,7 @@ class FriendlyView {
     setup() {
         const cc = this._colorController
         cc.setPattern(this._pattern)
-        cc.updateColorFunction()
+        cc.useWindowInsteadOfThreshold()
         this._controller.setup(this._pattern, this._generator)
         this._controller.setColorController(cc)
         this._panZoom.setPattern(this._pattern)
@@ -198,7 +200,7 @@ class FriendlyView {
         b.infrared = this.button("infra", "brightness cycles with the value: |v·amp + offset| mod 200. "
                                         + "off: black and white, zero vs non-zero  [i]",
                                  () => { this.toggleDrawingOption("infrared") })
-        b.window   = this.button("window", "MRI-style window: only values within center ± delta are drawn, "
+        b.window   = this.button("window", "MRI-style window: only the values marked on the histogram are drawn, "
                                          + "the rest is background. without infra: a ramp from dark to bright across it  [w]",
                                  () => { this.toggleDrawingOption("window") })
         b.signed   = this.button("sign", "plain: negative dark, positive bright. infra: around a middle gray  [s]",
@@ -220,20 +222,24 @@ class FriendlyView {
         s.center = this.toneSlider("center", new SymLogScale(), 0, manualWindow((v) => cc.setWindowCenter(v)))
         s.center.setTooltip("the value in the middle of the window. the scale is logarithmic in |value|: "
                           + "left half negative, right half positive, 0 in the middle")
-        s.delta = this.toneSlider("delta", new LogScale(-300, 308), 1, manualWindow((v) => cc.setWindowDelta(v)))
-        s.delta.setTooltip("half the width of the window, from 1e-300 to 1e308 on a log scale")
+        const maxDecades = this._valueAxis.unitsRange()[1]
+        s.width = this.toneSlider("width", new LogScale(Math.log10(this._minWindowDecades), Math.log10(maxDecades)),
+                                  1, manualWindow((v) => cc.setWindowDecades(v)))
+        s.width.setReadoutFormatter((v) => `±${ScaleUtils.formatNumber(v)}`)
+        s.width.setTooltip("how far the window reaches each way from the center, in decades: "
+                         + "±1 around 100 is 10 … 1000. it is the same width on the histogram wherever the center is")
         s.hueAmp = this.toneSlider("hue amp", new LogScale(-300, 300), 1, (v) => cc.setHueAmp(v))
         s.hueAmp.setTooltip("values are multiplied by this before the hue is taken")
         s.hueOffset = this.toneSlider("hue offset", new SymLogScale(), 0, (v) => cc.setHueOffset(v))
         s.hueOffset.setTooltip("added after the hue amp, before mod 255")
 
         this._buttons.fit = this.button("fit", "once: center on the median value, "
-                                             + "delta over the middle half of the values", () => {
+                                             + "width over the middle half of the values", () => {
             this.useWindow()
             this.fitWindow()
         })
         this._buttons.auto = this.button("auto", "fit the window to every new pattern, pan and zoom. "
-                                               + "moving center or delta turns it off", () => {
+                                               + "moving center or width turns it off", () => {
             this.setAutoWindow(!this._autoWindow)
             if (this._autoWindow)
                 this.fitWindow()
@@ -242,7 +248,7 @@ class FriendlyView {
 
         const fine = this.text("hint", "drag · shift+drag fine · wheel · 2× click default · click the number to type")
         this._toneCaption = this.text("tone-caption")
-        this._windowRow = this.section("window-row", s.center.element(), s.delta.element(),
+        this._windowRow = this.section("window-row", s.center.element(), s.width.element(),
                                        this._buttons.fit, this._buttons.auto)
         return this.section("tone",
                             this._histogram.element(),
@@ -267,8 +273,7 @@ class FriendlyView {
         })
         h.onPickRange((from, to) => {
             this.takeWindowOverManually()
-            cc.setWindowCenter(from / 2 + to / 2)
-            cc.setWindowDelta(Math.max(to / 2 - from / 2, Number.MIN_VALUE))
+            cc.setWindowRange(from, to)
             this.onColorChange()
         })
         h.onReset(() => {
@@ -364,26 +369,16 @@ class FriendlyView {
         s.amp.setValue(d.brightnessAmp)
         s.offset.setValue(d.brightnessOffset)
         s.center.setValue(d.windowCenter)
-        s.delta.setValue(d.windowDelta)
+        s.width.setValue(d.windowDecades)
         s.hueAmp.setValue(d.hueAmp)
         s.hueOffset.setValue(d.hueOffset)
 
-        s.amp.setVisible(!ramp)
-        s.offset.setVisible(!ramp)
+        s.amp.setVisible(d.infrared)
+        s.offset.setVisible(d.infrared)
         this._windowRow.classList.toggle("idle", !d.window)
         s.hueAmp.setVisible(d.colored)
         s.hueOffset.setVisible(d.colored)
 
-        if (!d.infrared) {
-            s.offset.setLabel("threshold")
-            s.amp.setTooltip("values are multiplied by this before the threshold")
-            s.offset.setTooltip("|v·amp| below this counts as zero (dark)")
-        }
-        else {
-            s.offset.setLabel("offset")
-            s.amp.setTooltip("values are multiplied by this: zooms the brightness cycles")
-            s.offset.setTooltip("added after the amp: shifts the brightness cycles")
-        }
         this.syncHistogramMark()
         this.syncToneCaption()
     }
@@ -393,31 +388,27 @@ class FriendlyView {
         const d = this._colorController.getDrawingOptions()
         const n = ScaleUtils.formatNumber
         const parts = []
-        if (d.window)
-            parts.push(`only ${n(d.windowCenter - d.windowDelta)} … ${n(d.windowCenter + d.windowDelta)}`)
+        if (d.window) {
+            const [from, to] = this._colorController.getWindowRange()
+            parts.push(`only ${n(from)} … ${n(to)}`)
+        }
         if (d.infrared)
             parts.push(`one brightness cycle per ${n(200 / Math.abs(d.brightnessAmp))} of value`)
         else if (d.window)
             parts.push(d.negative ? "bright → dark across it" : "dark → bright across it")
-        else {
-            const t = Math.abs(d.brightnessOffset / d.brightnessAmp)
-            parts.push(t > 0 ? `dark: |value| below ${n(t)} · bright: the rest` : "dark: exactly zero · bright: the rest")
-        }
+        else
+            parts.push("dark: exactly zero · bright: the rest")
         this._toneCaption.textContent = parts.join(" · ")
     }
 
 
     syncHistogramMark() {
-        const d = this._colorController.getDrawingOptions()
-        const h = this._histogram
+        const cc = this._colorController
+        const d = cc.getDrawingOptions()
         if (d.window)
-            h.setMark([d.windowCenter - d.windowDelta, d.windowCenter + d.windowDelta], d.windowCenter)
-        else if (!d.infrared) {
-            const t = Math.abs(d.brightnessOffset / d.brightnessAmp)
-            h.setMark(t > 0 ? [-t, t] : null)
-        }
+            this._histogram.setMark(cc.getWindowRange(), d.windowCenter)
         else
-            h.setMark(null)
+            this._histogram.setMark(null)
     }
 
 
@@ -437,7 +428,6 @@ class FriendlyView {
         const percent = p >= 100 ? "100%" : `${p.toFixed(1)}%`
         this._infoStatus.textContent = `#${this._controller.getPatternNumber()}   ${percent}   ${playing ? "slideshow" : ""}`
         this._buttons.play.textContent = playing ? "pause" : "play"
-        this._buttons.play.classList.toggle("on", playing)
     }
 
 
@@ -584,7 +574,7 @@ class FriendlyView {
     }
 
 
-    // Center on the median, delta over the middle half of the values.
+    // Center on the median, width over the middle half of the values.
     // Overflows (stored as ±MAX_VALUE) would drag the window to the ends.
     fitWindowTo(values) {
         const picks = Math.min(values.length, 20000)
@@ -599,12 +589,10 @@ class FriendlyView {
         sample = Float64Array.from(sample).sort()
         const n = sample.length
         const q = (t) => { return sample[Math.min(n - 1, Math.floor(t * n))] }
-        const center = q(0.5)
-        let delta = (q(0.75) - q(0.25)) / 2
-        if (!(delta > 0) || !isFinite(delta))
-            delta = Math.max(Math.abs(center) * 1e-6, 1e-300)
-        this._colorController.setWindowCenter(center)
-        this._colorController.setWindowDelta(Math.min(delta, Number.MAX_VALUE))
+        const axis = this._valueAxis
+        const decades = (axis.toUnits(q(0.75)) - axis.toUnits(q(0.25))) / 2
+        this._colorController.setWindowCenter(q(0.5))
+        this._colorController.setWindowDecades(Math.max(decades, this._minWindowDecades))
         this.onColorChange()
     }
 
@@ -650,6 +638,9 @@ class FriendlyView {
             return
         this._controller.eraseMutationBookmark()
         this._controller.nextPatternFromLoadedSettings(s)
+        const d = s.drawingOptions
+        if (d && !("windowDecades" in d))
+            this._colorController.convertThresholdToWindow()
         this.onPatternChange()
     }
 
