@@ -246,6 +246,25 @@ class Pattern {
     }
 
 
+    // Repaints everything shown so far with the current color function, at once.
+    recolor() {
+        const cf = this._colorFunction
+        if (this.done()) {
+            for (let i = 0; i < this.totalPoints(); ++i)
+                this._bitmap.setPixel(i, cf(this._values[i]))
+            return
+        }
+        for (let k = 0; k < this._process.pointsShown; ++k) {
+            const i = this.pixelIndex(k)
+            this._bitmap.setPixel(i, cf(this._values[i]))
+        }
+    }
+
+
+    // Indexed by pixel; only the first pointsShown in the reveal order are final.
+    getValues() { return this._values }
+
+
     pointsInOneDraw() { return Math.ceil(this.totalPoints() / this._process.numSteps) }
 
 

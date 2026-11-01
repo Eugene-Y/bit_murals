@@ -12,6 +12,8 @@ const ColorPacking = {
 
     gray: (v) => { return ColorPacking.rgba(v, v, v) },
 
+    clamp01: (v) => { return v > 0 ? (v < 1 ? v : 1) : 0 },
+
     // Same math as p5's _hsbaToRGBA with colorMode(HSB, 255), so the colors
     // stay identical to the ones p5's stroke() used to produce.
     hsb: (h, s, b) => {
@@ -19,24 +21,24 @@ const ColorPacking = {
         // ignored it and the point kept the default white fill.
         if (Number.isNaN(h + s + b))
             return ColorPacking.gray(255)
-        const clamp01 = (v) => { return v > 0 ? (v < 1 ? v : 1) : 0 }
-        const hue = 6 * clamp01(h / 255)
-        const sat = clamp01(s / 255)
-        const val = clamp01(b / 255)
-        let r = val, g = val, bl = val
-        if (sat !== 0) {
-            const sector = Math.floor(hue)
-            const tint1 = val * (1 - sat)
-            const tint2 = val * (1 - sat * (hue - sector))
-            const tint3 = val * (1 - sat * (1 + sector - hue))
-            switch (sector) {
-                case 1:  r = tint2; g = val;   bl = tint1; break
-                case 2:  r = tint1; g = val;   bl = tint3; break
-                case 3:  r = tint1; g = tint2; bl = val;   break
-                case 4:  r = tint3; g = tint1; bl = val;   break
-                case 5:  r = val;   g = tint1; bl = tint2; break
-                default: r = val;   g = tint3; bl = tint1; break
-            }
+        const sat = ColorPacking.clamp01(s / 255)
+        const val = ColorPacking.clamp01(b / 255)
+        if (sat === 0)
+            return ColorPacking.gray(Math.round(val * 255))
+
+        const hue = 6 * ColorPacking.clamp01(h / 255)
+        const sector = Math.floor(hue)
+        const tint1 = val * (1 - sat)
+        const tint2 = val * (1 - sat * (hue - sector))
+        const tint3 = val * (1 - sat * (1 + sector - hue))
+        let r, g, bl
+        switch (sector) {
+            case 1:  r = tint2; g = val;   bl = tint1; break
+            case 2:  r = tint1; g = val;   bl = tint3; break
+            case 3:  r = tint1; g = tint2; bl = val;   break
+            case 4:  r = tint3; g = tint1; bl = val;   break
+            case 5:  r = val;   g = tint1; bl = tint2; break
+            default: r = val;   g = tint3; bl = tint1; break
         }
         return ColorPacking.rgba(Math.round(r * 255), Math.round(g * 255), Math.round(bl * 255))
     }

@@ -6,7 +6,8 @@ class DrawingOptions {
     constructor(ir = false, neg = false,
         col = false, signed = false,
         hueAmp = 1, hueOffset = 0,
-        brightnessAmp = 1, brightnessOffset = 0) {
+        brightnessAmp = 1, brightnessOffset = 0,
+        window = false, windowCenter = 0, windowDelta = 1) {
         this.infrared = ir
         this.negative = neg
         this.colored = col
@@ -15,6 +16,9 @@ class DrawingOptions {
         this.hueOffset = hueOffset
         this.brightnessAmp = brightnessAmp
         this.brightnessOffset = brightnessOffset
+        this.window = window
+        this.windowCenter = windowCenter
+        this.windowDelta = windowDelta
     }
 
 
@@ -22,7 +26,8 @@ class DrawingOptions {
         return new DrawingOptions(
             this.infrared, this.negative, this.colored, this.signed,
             this.hueAmp, this.hueOffset,
-            this.brightnessAmp, this.brightnessOffset)
+            this.brightnessAmp, this.brightnessOffset,
+            this.window, this.windowCenter, this.windowDelta)
     }
 
 
@@ -35,6 +40,10 @@ class DrawingOptions {
         this.hueOffset = d.hueOffset
         this.brightnessAmp = d.brightnessAmp
         this.brightnessOffset = d.brightnessOffset
+        // settings saved before the window mode existed don't have these
+        this.window = d.window ?? false
+        this.windowCenter = d.windowCenter ?? 0
+        this.windowDelta = d.windowDelta ?? 1
     }
 }
 
@@ -160,6 +169,72 @@ class PatternColorController {
     }
 
 
+    setInfrared(on) {
+        this._drawingOptions.infrared = on
+        this.updateColorFunction()
+    }
+
+
+    setWindow(on) {
+        this._drawingOptions.window = on
+        this.updateColorFunction()
+    }
+
+
+    setSigned(on) {
+        this._drawingOptions.signed = on
+        this.updateColorFunction()
+    }
+
+
+    setNegative(on) {
+        this._drawingOptions.negative = on
+        this.updateColorFunction()
+    }
+
+
+    setColored(on) {
+        this._drawingOptions.colored = on
+        this.updateColorFunction()
+    }
+
+
+    setBrightnessAmp(a) {
+        this._drawingOptions.brightnessAmp = a
+        this.updateColorFunction()
+    }
+
+
+    setBrightnessOffset(o) {
+        this._drawingOptions.brightnessOffset = o
+        this.updateColorFunction()
+    }
+
+
+    setHueAmp(a) {
+        this._drawingOptions.hueAmp = a
+        this.updateColorFunction()
+    }
+
+
+    setHueOffset(o) {
+        this._drawingOptions.hueOffset = o
+        this.updateColorFunction()
+    }
+
+
+    setWindowCenter(c) {
+        this._drawingOptions.windowCenter = c
+        this.updateColorFunction()
+    }
+
+
+    setWindowDelta(d) {
+        this._drawingOptions.windowDelta = d
+        this.updateColorFunction()
+    }
+
+
     resetHueParams() {
         this._drawingOptions.hueAmp = 1
         this._drawingOptions.hueOffset = 0
@@ -260,6 +335,8 @@ class PatternColorController {
 
     makeBrightnessFunc(drawingOptions) {
         const d = drawingOptions
+        if (d.window)
+            return this.makeWindowBrightnessFunc(d)
 
         let b = (p) => { return 0 }
 
@@ -330,6 +407,26 @@ class PatternColorController {
         }
 
         return b
+    }
+
+
+    // MRI-style: values below center - delta are dark, above center + delta
+    // bright, linear in between. Amp and offset don't apply here.
+    makeWindowBrightnessFunc(drawingOptions) {
+        const d = drawingOptions
+        const low = this._lowBrightness
+        const range = this._hiBrightness - low
+        const center = d.windowCenter
+        const width = 2 * d.windowDelta
+        // center + delta can round to center when delta is far smaller, so the
+        // ramp is measured from the center
+        const ramp = (p) => {
+            const t = 0.5 + (p - center) / width
+            return t <= 0 ? 0 : (t >= 1 ? 1 : t)
+        }
+        if (d.negative)
+            return (p) => { return low + range * (1 - ramp(p)) }
+        return (p) => { return low + range * ramp(p) }
     }
 
 

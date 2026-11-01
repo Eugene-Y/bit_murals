@@ -16,8 +16,7 @@ class View {
         this._sliders    = []
         this._touchZones = {}
         this._userInputs = []
-        this._noiseCanvas = null
-        this._noiseCanvasSide = 500
+        this._noise = null
         this._panning       = false
         this._drawGrids     = false
         this._settingSlider = false
@@ -104,29 +103,7 @@ class View {
     }
 
 
-    createNoiseCanvas() {
-        let n = this._g.createGraphics(this._noiseCanvasSide, this._noiseCanvasSide)
-        n.colorMode(n.HSB, 255)
-        this._noiseCanvas = n
-        this.fillNoiseCanvas()
-    }
-
-
-    fillNoiseCanvas(){
-        let n = this._noiseCanvas
-        n.clear()
-        let fill = (p, c, a) => {
-            for (let i = 0; i < n.width; ++i)
-		        for (let j = 0; j < n.height; ++j)
-                    if (Math.random() < p) {
-                        const r = Math.random()
-                        n.stroke(c, a * r)
-		        	    n.point(i, j)
-                }
-            }
-        fill(0.5, 0, 25)
-        fill(0.1, 255, 20)
-    }
+    createNoiseCanvas() { this._noise = new NoiseOverlay(this._g) }
 
 
     createSliders(){
@@ -429,34 +406,7 @@ class View {
     }
 
 
-    drawNoise(destCanvas, areaW, areaH){
-        const nSide = this._noiseCanvasSide
-        const d = 50 // чтобы разброс рандома был побольше и шум не "застывал"
-        const m = nSide / d
-        const x0 = Math.ceil(Math.random() * m) * d
-        const y0 = Math.ceil(Math.random() * m) * d
-
-        let filledH = 0
-        let destW = 0;
-
-        let fillLine = (dy) => {
-            let filledW = 0
-            let destH = Math.min(nSide, areaH - (filledH - y0))
-            while (filledW - x0 < areaW) {
-                destW = Math.min(nSide, areaW - (filledW - x0))
-                destCanvas.image(this._noiseCanvas,
-                             -x0 + filledW, dy - y0,
-                             destW, destH,
-                             0, 0,
-                             destW, destH)
-                filledW += destW
-            }
-            return destH
-        }
-
-        while (filledH - y0 < areaH)
-            filledH += fillLine(filledH)
-    }
+    drawNoise(destCanvas, areaW, areaH){ this._noise.draw(destCanvas, areaW, areaH) }
 
 
     startRedrawPattern(){
