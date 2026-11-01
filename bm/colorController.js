@@ -259,12 +259,26 @@ class PatternColorController {
         const hf = this.makeHueFunc(d)
         const sf = this.makeSaturationFunc(d)
         const bf = this.makeBrightnessFunc(d)
-        const cf = (p) => {
+        let cf = (p) => {
             const b = bf(p)
             return ColorPacking.hsb(hf(p), sf(b), b)
         }
+        if (d.window)
+            cf = this.limitToWindow(d, cf)
         this._colorFunction = cf
         this._pattern.setColorFunction(cf)
+    }
+
+
+    // MRI-style window: only values within center ± delta are drawn, the rest
+    // is background. center + delta can round to center when delta is far
+    // smaller, so the distance is measured from the center.
+    limitToWindow(drawingOptions, colorInside) {
+        const d = drawingOptions
+        const center = d.windowCenter
+        const delta = d.windowDelta
+        const outside = ColorPacking.gray(d.negative ? this._hiBrightness : this._lowBrightness)
+        return (p) => { return Math.abs(p - center) > delta ? outside : colorInside(p) }
     }
 
 
@@ -335,8 +349,8 @@ class PatternColorController {
 
     makeBrightnessFunc(drawingOptions) {
         const d = drawingOptions
-        if (d.window)
-            return this.makeWindowBrightnessFunc(d)
+        if (d.window && !d.infrared)
+            return this.makeWindowRampFunc(d)
 
         let b = (p) => { return 0 }
 
@@ -410,16 +424,14 @@ class PatternColorController {
     }
 
 
-    // MRI-style: values below center - delta are dark, above center + delta
-    // bright, linear in between. Amp and offset don't apply here.
-    makeWindowBrightnessFunc(drawingOptions) {
+    // Inside the window without infrared: dark at center - delta, bright at
+    // center + delta. Amp and offset don't apply here.
+    makeWindowRampFunc(drawingOptions) {
         const d = drawingOptions
         const low = this._lowBrightness
         const range = this._hiBrightness - low
         const center = d.windowCenter
         const width = 2 * d.windowDelta
-        // center + delta can round to center when delta is far smaller, so the
-        // ramp is measured from the center
         const ramp = (p) => {
             const t = 0.5 + (p - center) / width
             return t <= 0 ? 0 : (t >= 1 ? 1 : t)

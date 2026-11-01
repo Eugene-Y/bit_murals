@@ -17,7 +17,7 @@ const friendlyTemplate = (p) => {
 
     p.draw = function() { view.draw() }
 
-    p.windowResized = function() { view.resize() }
+    p.windowResized = function() { view.resizeCanvas() }
 }
 
 new p5(friendlyTemplate)

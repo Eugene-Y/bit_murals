@@ -48,8 +48,8 @@ class FriendlyView {
         this._noise = new NoiseOverlay(p5)
         this._histogram = new ValueHistogram()
         this._tooltip = new Tooltip()
-        this._framingSides = [0, 256, 384, 512, 768, 1024] // 0 - as big as fits
-        this._framingId = 0
+        this._framingSides = [256, 300, 350, 400, 450, 512, 1024, 0] // 0 - as big as fits now
+        this._framingId = 3
         this._patternRect = { x: 0, y: 0, side: 1 }
         this._shownPercent = -1
         this._buttons = {}
@@ -83,7 +83,8 @@ class FriendlyView {
         this.listenToPatternArea()
         this.listenToKeys()
         this.listenToFileDrops()
-        this.resize()
+        this.resizeCanvas()
+        this.applyFraming()
 
         this._controller.nextPattern()
         this.onPatternChange()
@@ -167,6 +168,7 @@ class FriendlyView {
     buildInfo() {
         this._infoStatus = this.text("status")
         this._infoFormula = this.text("formula")
+        this._infoFormula.dataset.tip = "generated formula"
         this._infoFraming = this.text("framing")
         this._infoValue = this.text("value", "move over the pattern to read values")
         return this.section("info", this._infoStatus, this._infoFormula, this._infoFraming, this._infoValue)
@@ -182,7 +184,8 @@ class FriendlyView {
                                   () => { this.stopSlideshow(); this.randomize() })
         b.mutate    = this.button("mut", "mutate the current formula a bit  [m]\n1…6: numbers, operand, function, operation, branches, brackets",
                                   () => { this.stopSlideshow(); this.mutate() })
-        b.framing   = this.button("size", "pattern size: fit, 256, 384, 512, 768, 1024 px  [f]", () => { this.nextFraming() })
+        b.framing   = this.button("size", "pattern size: 256 … 1024 px, or fit: as big as the space is now. "
+                                        + "resizing the browser window keeps it  [f, shift+f back]", () => { this.nextFraming(1) })
         b.save      = this.button("save", "save the picture and a settings file  [↓]", () => { this.save() })
         b.load      = this.button("load", "load a settings file, or drop it on the page  [↑]", () => { this.load() })
         return this.section("buttons transport",
@@ -194,10 +197,10 @@ class FriendlyView {
         const b = this._buttons
         b.infrared = this.button("infra", "brightness cycles with the value: |v·amp + offset| mod 200. "
                                         + "off: black and white, zero vs non-zero  [i]",
-                                 () => { this.toggleMode("infrared") })
-        b.window   = this.button("window", "MRI-style window: dark below center − delta, bright above center + delta, "
-                                         + "a ramp in between. off: black and white  [w]",
-                                 () => { this.toggleMode("window") })
+                                 () => { this.toggleDrawingOption("infrared") })
+        b.window   = this.button("window", "MRI-style window: only values within center ± delta are drawn, "
+                                         + "the rest is background. without infra: a ramp from dark to bright across it  [w]",
+                                 () => { this.toggleDrawingOption("window") })
         b.signed   = this.button("sign", "plain: negative dark, positive bright. infra: around a middle gray  [s]",
                                  () => { this.toggleDrawingOption("signed") })
         b.negative = this.button("neg", "invert the brightness  [n]", () => { this.toggleDrawingOption("negative") })
@@ -317,24 +320,16 @@ class FriendlyView {
     }
 
 
-    mode() {
-        const d = this._colorController.getDrawingOptions()
-        if (d.window) return "window"
-        if (d.infrared) return "infrared"
-        return "plain"
-    }
-
-
     syncDrawingControls() {
         const d = this._colorController.getDrawingOptions()
         const b = this._buttons
-        const mode = this.mode()
-        b.infrared.classList.toggle("on", mode === "infrared")
-        b.window.classList.toggle("on", mode === "window")
+        const ramp = d.window && !d.infrared
+        b.infrared.classList.toggle("on", d.infrared)
+        b.window.classList.toggle("on", d.window)
         b.signed.classList.toggle("on", d.signed)
         b.negative.classList.toggle("on", d.negative)
         b.colored.classList.toggle("on", d.colored)
-        b.signed.classList.toggle("idle", mode === "window")
+        b.signed.classList.toggle("idle", ramp)
         b.auto.classList.toggle("on", this._autoWindow)
 
         const s = this._toneSliders
@@ -345,13 +340,13 @@ class FriendlyView {
         s.hueAmp.setValue(d.hueAmp)
         s.hueOffset.setValue(d.hueOffset)
 
-        s.amp.setVisible(mode !== "window")
-        s.offset.setVisible(mode !== "window")
-        this._windowRow.hidden = mode !== "window"
+        s.amp.setVisible(!ramp)
+        s.offset.setVisible(!ramp)
+        this._windowRow.hidden = !d.window
         s.hueAmp.setVisible(d.colored)
         s.hueOffset.setVisible(d.colored)
 
-        if (mode === "plain") {
+        if (!d.infrared) {
             s.offset.setLabel("threshold")
             s.amp.setTooltip("values are multiplied by this before the threshold")
             s.offset.setTooltip("|v·amp| below this counts as zero (dark)")
@@ -369,27 +364,25 @@ class FriendlyView {
     syncToneCaption() {
         const d = this._colorController.getDrawingOptions()
         const n = ScaleUtils.formatNumber
-        const mode = this.mode()
-        let s = ""
-        if (mode === "window") {
-            const [dark, bright] = d.negative ? ["bright", "dark"] : ["dark", "bright"]
-            s = `${dark} below ${n(d.windowCenter - d.windowDelta)} · ramp · ${bright} above ${n(d.windowCenter + d.windowDelta)}`
-        }
-        else if (mode === "infrared")
-            s = `one brightness cycle per ${n(200 / Math.abs(d.brightnessAmp))} of value`
+        const parts = []
+        if (d.window)
+            parts.push(`only ${n(d.windowCenter - d.windowDelta)} … ${n(d.windowCenter + d.windowDelta)}`)
+        if (d.infrared)
+            parts.push(`one brightness cycle per ${n(200 / Math.abs(d.brightnessAmp))} of value`)
+        else if (d.window)
+            parts.push(d.negative ? "bright → dark across it" : "dark → bright across it")
         else {
             const t = Math.abs(d.brightnessOffset / d.brightnessAmp)
-            s = t > 0 ? `dark: |value| below ${n(t)} · bright: the rest` : "dark: exactly zero · bright: the rest"
+            parts.push(t > 0 ? `dark: |value| below ${n(t)} · bright: the rest` : "dark: exactly zero · bright: the rest")
         }
-        this._toneCaption.textContent = s
+        this._toneCaption.textContent = parts.join(" · ")
     }
 
 
     syncHistogramMark() {
         const d = this._colorController.getDrawingOptions()
         const h = this._histogram
-        const mode = this.mode()
-        if (mode === "window") {
+        if (d.window) {
             h.setMark([d.windowCenter - d.windowDelta, d.windowCenter + d.windowDelta])
             h.onPick((v) => {
                 this.setAutoWindow(false)
@@ -397,7 +390,7 @@ class FriendlyView {
                 this.onColorChange()
             }, "click: center the window here")
         }
-        else if (mode === "plain") {
+        else if (!d.infrared) {
             const t = Math.abs(d.brightnessOffset / d.brightnessAmp)
             h.setMark(t > 0 ? [-t, t] : null)
             h.onPick((v) => {
@@ -415,7 +408,6 @@ class FriendlyView {
     syncInfo() {
         const c = this._controller
         this._infoFormula.textContent = c.getReadableFormula()
-        this._infoFormula.dataset.tip = c.getReadableFormula()
         const f = this._pattern.getFraming()
         const n = ScaleUtils.formatNumber
         this._infoFraming.textContent = `x₀ ${n(f.x0)}   y₀ ${n(f.y0)}   zoom ${n(f.zoom)}`
@@ -450,7 +442,7 @@ class FriendlyView {
     onValuesChange() {
         const sample = this.sampleValues()
         this._histogram.setValues(sample)
-        if (this._autoWindow && this.mode() === "window")
+        if (this._autoWindow && this._colorController.getDrawingOptions().window)
             this.fitWindowTo(sample)
     }
 
@@ -538,19 +530,6 @@ class FriendlyView {
     }
 
 
-    // infrared and window exclude each other; with both off it's black and white
-    toggleMode(mode) {
-        this.stopSlideshow()
-        const next = this.mode() === mode ? "plain" : mode
-        const cc = this._colorController
-        cc.setInfrared(next === "infrared")
-        cc.setWindow(next === "window")
-        if (next === "window" && this._autoWindow)
-            this.fitWindow()
-        this.onColorChange()
-    }
-
-
     setAutoWindow(on) {
         this._autoWindow = on
         this._buttons.auto.classList.toggle("on", on)
@@ -561,9 +540,13 @@ class FriendlyView {
         this.stopSlideshow()
         const cc = this._colorController
         const on = !cc.getDrawingOptions()[name]
+        if (name === "infrared") cc.setInfrared(on)
+        if (name === "window") cc.setWindow(on)
         if (name === "signed") cc.setSigned(on)
         if (name === "negative") cc.setNegative(on)
         if (name === "colored") cc.setColored(on)
+        if (name === "window" && on && this._autoWindow)
+            this.fitWindow()
         this.onColorChange()
     }
 
@@ -598,9 +581,21 @@ class FriendlyView {
     }
 
 
-    nextFraming() {
-        this._framingId = (this._framingId + 1) % this._framingSides.length
-        this.resize()
+    nextFraming(step) {
+        const n = this._framingSides.length
+        this._framingId = (this._framingId + step + n) % n
+        this.applyFraming()
+    }
+
+
+    applyFraming() {
+        const r = this._area.getBoundingClientRect()
+        const fits = Math.floor(Math.min(r.width, r.height))
+        const wanted = this._framingSides[this._framingId]
+        const side = Math.max(1, wanted || fits)
+        this._buttons.framing.textContent = wanted ? String(wanted) : "fit"
+        if (this._pattern.setWidthAndHeight(side, side))
+            this.onFramingChange()
     }
 
 
@@ -722,12 +717,12 @@ class FriendlyView {
                 "a": () => { this.toggleSlideshow() },
                 "r": () => { this.stopSlideshow(); this.randomize() },
                 "m": () => { this.stopSlideshow(); this.mutate() },
-                "i": () => { this.toggleMode("infrared") },
-                "w": () => { this.toggleMode("window") },
+                "i": () => { this.toggleDrawingOption("infrared") },
+                "w": () => { this.toggleDrawingOption("window") },
                 "s": () => { this.toggleDrawingOption("signed") },
                 "n": () => { this.toggleDrawingOption("negative") },
                 "c": () => { this.toggleDrawingOption("colored") },
-                "f": () => { this.nextFraming() },
+                "f": () => { this.nextFraming(e.shiftKey ? -1 : 1) },
                 "0": () => { this.resetBrightness() },
                 "9": () => { this.resetHue() }
             }
@@ -758,15 +753,9 @@ class FriendlyView {
 
     // ---------- drawing ----------
 
-    resize() {
-        const g = this._g
-        g.resizeCanvas(window.innerWidth, window.innerHeight)
-        const r = this._area.getBoundingClientRect()
-        const fits = Math.floor(Math.min(r.width, r.height))
-        const wanted = this._framingSides[this._framingId]
-        const side = Math.max(1, wanted ? Math.min(wanted, fits) : fits)
-        if (this._pattern.setWidthAndHeight(side, side))
-            this.onFramingChange()
+    // The pattern keeps its size: only the size button changes it.
+    resizeCanvas() {
+        this._g.resizeCanvas(window.innerWidth, window.innerHeight)
         this._histogram.draw()
     }
 
@@ -786,7 +775,13 @@ class FriendlyView {
             this._recolorPending = false
         }
         this._pattern.draw()
-        this._pattern.getBitmap().drawTo(g.drawingContext, this._patternRect.x, this._patternRect.y)
+        const ctx = g.drawingContext
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(a.left, a.top, a.width, a.height)
+        ctx.clip()
+        this._pattern.getBitmap().drawTo(ctx, this._patternRect.x, this._patternRect.y)
+        ctx.restore()
         this._noise.draw(g, g.width, g.height)
 
         const p = this._pattern.getPercentReady()
