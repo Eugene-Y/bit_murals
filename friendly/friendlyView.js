@@ -93,9 +93,7 @@ class FriendlyView {
         this._slideshow.setNextPatternCallback(() => {
             if (!this.readyForNextSlide())
                 return false
-            this._controller.nextPattern(true, true)
-            this._staging = true
-            this.syncStatus()
+            this.transitionTo(() => this._controller.nextPattern(true, true))
             return true
         })
 
@@ -738,25 +736,30 @@ class FriendlyView {
     }
 
 
-    jumpToAnotherPattern(callToController) {
+    // The slideshow and the arrows: the pattern is calculated aside, then
+    // built up over the one on screen. At the start of history nothing is staged.
+    transitionTo(callToController) {
         callToController()
-        this.onPatternChange()
+        if (this._pattern.isStaging()) {
+            this._staging = true
+            this.syncStatus()
+        }
     }
 
 
     nextPattern() {
         this._controller.eraseMutationBookmark()
-        this.jumpToAnotherPattern(() => this._controller.nextPattern(false))
+        this.transitionTo(() => this._controller.nextPattern(false, true))
     }
 
 
     prevPattern() {
         const c = this._controller
         if (c.hasMutationBookmark() && !c.currentPatternIsMutationOrigin())
-            this.jumpToAnotherPattern(() => c.goToMutationOrigin())
+            this.transitionTo(() => c.goToMutationOrigin(true))
         else {
             c.eraseMutationBookmark()
-            this.jumpToAnotherPattern(() => c.prevPattern())
+            this.transitionTo(() => c.prevPattern(true))
         }
     }
 

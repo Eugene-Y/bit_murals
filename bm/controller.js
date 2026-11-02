@@ -96,7 +96,7 @@ class Controller {
         }
         else {
             ++this._currentHistoryPos
-            this.loadFromHistory(this._currentHistoryPos)
+            this.loadFromHistory(this._currentHistoryPos, staged)
         }
 
         this.logHistoryPos()
@@ -107,7 +107,7 @@ class Controller {
 
     getCurrentHistoryItem() { return this._history.get(this._currentHistoryPos) }
 
-    prevPattern(){
+    prevPattern(staged = false){
         this.l.logc("previous pattern")
         this.l.assert(this._currentHistoryPos >= 0)
         if (this._currentHistoryPos == 0)
@@ -115,7 +115,7 @@ class Controller {
         else {
             this.updateCurrentPanZoomAndDrawingOptionsRecord()
             --this._currentHistoryPos
-            this.loadFromHistory(this._currentHistoryPos)
+            this.loadFromHistory(this._currentHistoryPos, staged)
         }
         this.logHistoryPos()
         this.l.loge()
@@ -130,10 +130,10 @@ class Controller {
     }
 
 
-    loadFromHistory(i){
+    loadFromHistory(i, staged = false){
         this.l.logc("loading history", i)
         const s = this._history.get(i)
-        this.loadSettings(s, false)
+        this.loadSettings(s, false, staged)
         this.l.loge()
     }
 
@@ -241,11 +241,11 @@ class Controller {
     currentPatternIsMutationOrigin() { return this._currentHistoryPos == this._bookmarks[0] }
 
 
-    goToMutationOrigin(){
+    goToMutationOrigin(staged = false){
         this.l.assert(this.hasMutationBookmark())
         this.updateCurrentPanZoomAndDrawingOptionsRecord()
         const b = this._bookmarks[0]
-        this.loadFromHistory(b)
+        this.loadFromHistory(b, staged)
         this._currentHistoryPos = b
     }
 
@@ -307,7 +307,9 @@ class Controller {
     }
 
 
-    loadSettings(s, withUserParams){
+    // A staged formula is calculated with the loaded framing, so it goes to
+    // the pattern after it.
+    loadSettings(s, withUserParams, staged = false){
         this.l.logc("loading settings")
 
         this.l.assert(s.hasOwnProperty("formulaStructure"))
@@ -330,13 +332,17 @@ class Controller {
         else this.l.warn("no numbers found")
 
         this._generator.setFormulaStructure(s.formulaStructure)
-        this.setCurrentFormulaToPattern()
 
         if (s.hasOwnProperty("framing")) {
             let f = s.framing
             this._pattern.setFraming(new Framing(f.x0, f.y0, f.zoom))
         }
         else this.l.warn("no framing found")
+
+        if (staged)
+            this.stageCurrentFormulaInPattern()
+        else
+            this.setCurrentFormulaToPattern()
 
         if (s.hasOwnProperty("drawingOptions"))
             this._colorController.setDrawingOptions(s.drawingOptions)
