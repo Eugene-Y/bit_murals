@@ -36,7 +36,7 @@ class ValueSweep {
         this._colors = bitmap.copyPixels()
         this._glow = new Float32Array(values.length).fill(1)
         this._lit = new Uint8Array(values.length)
-        this._repaintKept = false
+        this._repaintLit = false
 
         this._startMs = null
         this._lastMs = null
@@ -150,7 +150,17 @@ class ValueSweep {
 
     setKept(kept) {
         this._kept = kept
-        this._repaintKept = true
+        this._repaintLit = true
+    }
+
+
+    setColorFunction(colorFunction) {
+        this._colorFunction = colorFunction
+        for (let k = 0; k < this._litPixels; ++k) {
+            const i = this._stepPixels[k]
+            this._colors[i] = colorFunction(this._values[i])
+        }
+        this._repaintLit = true
     }
 
 
@@ -161,7 +171,7 @@ class ValueSweep {
             this._startMs = this._lastMs = nowMs
         const dt = (nowMs - this._lastMs) / 1000
         this._lastMs = nowMs
-        if (dt > 0 || this._repaintKept)
+        if (dt > 0 || this._repaintLit)
             this.fade(this.glowLeftAfter(dt))
 
         const elapsed = (nowMs - this._startMs) / 1000
@@ -182,8 +192,8 @@ class ValueSweep {
         const lit = this._lit
         const colors = this._colors
         const kept = this._kept
-        const repaint = this._repaintKept
-        this._repaintKept = false
+        const repaint = this._repaintLit
+        this._repaintLit = false
         for (let i = 0; i < glow.length; ++i) {
             let g = glow[i]
             if (g === 0 && !(repaint && lit[i]))

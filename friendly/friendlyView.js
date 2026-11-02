@@ -522,8 +522,8 @@ class FriendlyView {
 
 
     // Sliders fire faster than frames, so the recolor waits for the next one.
+    // A running sweep takes the new colors and goes on.
     onColorChange() {
-        this.stopSweep()
         this._recolorPending = true
         this.syncDrawingControls()
     }
@@ -555,19 +555,24 @@ class FriendlyView {
     }
 
 
-    // The trail is in the color mode as it is, without the window.
     startSweep() {
         this._sweepWanted = false
-        const cc = this._colorController
-        const d = cc.getDrawingOptions().copy()
-        d.window = false
         const h = this._histogram
         const p = this._pattern
         const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), h.numBins(),
-                                     cc.makeColorFunction(d), p.getBitmap(),
+                                     this.sweepColorFunction(), p.getBitmap(),
                                      this._sweepSeconds, this._sweepKept)
         this._sweep = sweep.numSteps() ? sweep : null
         this.syncSweepButton()
+    }
+
+
+    // The trail is in the color mode as it is, without the window.
+    sweepColorFunction() {
+        const cc = this._colorController
+        const d = cc.getDrawingOptions().copy()
+        d.window = false
+        return cc.makeColorFunction(d)
     }
 
 
@@ -945,7 +950,10 @@ class FriendlyView {
             side: side
         }
         if (this._recolorPending) {
-            this._pattern.recolor()
+            if (this._sweep)
+                this._sweep.setColorFunction(this.sweepColorFunction())
+            else
+                this._pattern.recolor()
             this._recolorPending = false
         }
         this._pattern.draw()
