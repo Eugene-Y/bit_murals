@@ -5,7 +5,9 @@
 // Runs over the values from zero outward, negative and positive together,
 // lighting up the pixels in turn and leaving a trail that fades out over the
 // fade time; with an infinite one the picture builds up. Zeros are left out:
-// they'd usually flood the picture.
+// they'd usually flood the picture. Over the old picture, as a transition from
+// it, every pixel is painted, zeros last, and the old one doesn't fade: it is
+// covered.
 //
 // The way is cut into steps much finer than the histogram's bins, so a narrow
 // band is still passed through rather than flashed at once. Only non-empty
@@ -14,9 +16,11 @@
 // sparse stretches between groups of values would leave the picture dark.
 // Inside a step, pixels light up in the pattern's reveal order, like it emerged.
 class ValueSweep {
-    constructor(values, revealOrder, numHistogramBins, colorFunction, bitmap, seconds, fadeSeconds) {
-        this._seconds = seconds
-        this._fadeSeconds = fadeSeconds
+    // look: { colorFunction, seconds, fadeSeconds, overOldPicture }
+    constructor(values, revealOrder, numHistogramBins, bitmap, look) {
+        this._seconds = look.seconds
+        this._fadeSeconds = look.fadeSeconds
+        this._overOldPicture = look.overOldPicture
         this._maxSecondsPerStep = 1.5 // before stretching to the whole time
         this._stepsPerHistogramBin = 64
         this._timeByPixels = 0.7      // the rest of the time is split evenly between steps
@@ -27,7 +31,7 @@ class ValueSweep {
         this._axis = new SymLogScale()
         this._numHistogramBins = numHistogramBins
         this._bitmap = bitmap
-        this._colorFunction = colorFunction
+        this._colorFunction = look.colorFunction
         this._values = values
         this.groupPixelsBySteps(values, revealOrder)
         this.planTime()
@@ -48,10 +52,13 @@ class ValueSweep {
 
 
     // A step is a distance from zero on the symlog axis, on either side.
+    // Zeros, when they are painted, get a distance past all the others.
     groupPixelsBySteps(values, revealOrder) {
         const half = this._numHistogramBins / 2
-        const numDistances = half * this._stepsPerHistogramBin
-        const unitsPerDistance = this._axis.unitsRange()[1] / numDistances
+        const numValueDistances = half * this._stepsPerHistogramBin
+        const zeroDistance = numValueDistances
+        const numDistances = numValueDistances + 1
+        const unitsPerDistance = this._axis.unitsRange()[1] / numValueDistances
         const total = values.length
 
         const pixelDistance = new Int32Array(total)
@@ -61,10 +68,15 @@ class ValueSweep {
         for (let i = 0; i < total; ++i) {
             const v = values[i]
             if (v === 0) {
-                pixelDistance[i] = -1
+                if (this._overOldPicture) {
+                    pixelDistance[i] = zeroDistance
+                    ++distanceCounts[zeroDistance]
+                }
+                else
+                    pixelDistance[i] = -1
                 continue
             }
-            const dist = Math.min(numDistances - 1, Math.floor(Math.abs(this._axis.toUnits(v)) / unitsPerDistance))
+            const dist = Math.min(numValueDistances - 1, Math.floor(Math.abs(this._axis.toUnits(v)) / unitsPerDistance))
             pixelDistance[i] = dist
             ++distanceCounts[dist]
             if (v < 0) negative[dist] = 1
@@ -124,14 +136,14 @@ class ValueSweep {
     }
 
 
-    clearSeconds() { return Math.min(this._clearSeconds, this._seconds / 4) }
+    clearSeconds() { return this._overOldPicture ? Infinity : Math.min(this._clearSeconds, this._seconds / 4) }
 
 
     // After the last step, until everything that fades is down to the background.
     tailSeconds() {
-        const fade = this._fadeSeconds < Infinity ? this._fadeSeconds : 0
+        const fading = [this.clearSeconds(), this._fadeSeconds].filter(s => s < Infinity)
         const fadesToSettle = Math.log(this._settledGlow) / Math.log(this._fadedLeft)
-        return fadesToSettle * Math.max(this.clearSeconds(), fade)
+        return fadesToSettle * Math.max(0, ...fading)
     }
 
 
@@ -195,11 +207,13 @@ class ValueSweep {
     fade(dt) {
         const keepLit = this.glowLeftAfter(dt, this._fadeSeconds)
         const keepOld = this.glowLeftAfter(dt, this.clearSeconds())
+        const repaint = this._repaintLit
+        this._repaintLit = false
+        if (keepLit === 1 && keepOld === 1 && !repaint)
+            return
         const glow = this._glow
         const lit = this._lit
         const colors = this._colors
-        const repaint = this._repaintLit
-        this._repaintLit = false
         for (let i = 0; i < glow.length; ++i) {
             let g = glow[i]
             if (g === 0)

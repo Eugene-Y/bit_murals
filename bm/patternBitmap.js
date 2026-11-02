@@ -14,6 +14,9 @@ const ColorPacking = {
 
     clamp01: (v) => { return v > 0 ? (v < 1 ? v : 1) : 0 },
 
+    // 0 … 255, weighted the way eyes weigh the channels.
+    brightness: (c) => { return 0.299 * (c & 0xff) + 0.587 * ((c >>> 8) & 0xff) + 0.114 * ((c >>> 16) & 0xff) },
+
     // Same math as p5's _hsbaToRGBA with colorMode(HSB, 255), so the colors
     // stay identical to the ones p5's stroke() used to produce.
     hsb: (h, s, b) => {
@@ -88,6 +91,8 @@ class PatternBitmap {
         this._dirty = true
     }
 
+
+    getPixel(i) { return this._pixels[i] }
 
     copyPixels() { return this._pixels.slice() }
 

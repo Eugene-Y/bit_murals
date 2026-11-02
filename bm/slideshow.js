@@ -13,6 +13,8 @@ class Slideshow {
 
     isPlaying() { return this._playing }
 
+    getDelayMs() { return this._delayMs }
+
 
     setNextPatternCallback(cb) {
         this.l.log("set redraw callback")

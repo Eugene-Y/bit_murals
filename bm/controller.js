@@ -63,7 +63,15 @@ class Controller {
     }
 
 
-    nextPattern(forceAppend = true){
+    stageCurrentFormulaInPattern() {
+        const g = this._generator
+        this._pattern.stageFormula(g.getFormulaObject(), g.getFormulaSource())
+    }
+
+
+    // staged: the pattern calculates the new formula aside and keeps showing
+    // the current one until it is committed.
+    nextPattern(forceAppend = true, staged = false){
         this.l.clear()
         this.l.log("next pattern")
         this.l.assert(this._currentHistoryPos < this._history.length())
@@ -78,7 +86,10 @@ class Controller {
             this._colorController.resetHueParams()
             this._colorController.resetBrightnessParams()
             this.generateFormula()
-            this.setCurrentFormulaToPattern()
+            if (staged)
+                this.stageCurrentFormulaInPattern()
+            else
+                this.setCurrentFormulaToPattern()
             this.addCurrentPatternToHistory()
             ++this._currentHistoryPos
             this.l.loge()

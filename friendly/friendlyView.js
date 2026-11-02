@@ -73,6 +73,9 @@ class FriendlyView {
         this._sweepBins = []
         this._sweepSeconds = 8
         this._sweepFadeSeconds = 1
+        this._sweepIsTransition = false
+        this._staging = false
+        this._slideShownAt = 0
         this._longestSweepFadeSeconds = 100
         this._minWindowDecades = 1e-4
         this.l = new Logger("Friendly View")
@@ -88,9 +91,11 @@ class FriendlyView {
         this._panZoom.setPattern(this._pattern)
         this._pattern.setDoneCallback(() => { this.onPatternDone() })
         this._slideshow.setNextPatternCallback(() => {
-            if (!this._pattern.done())
+            if (!this.readyForNextSlide())
                 return false
-            this.jumpToAnotherPattern(() => this._controller.nextPattern())
+            this._controller.nextPattern(true, true)
+            this._staging = true
+            this.syncStatus()
             return true
         })
 
@@ -234,7 +239,7 @@ class FriendlyView {
                       + "at the right end, ∞, they stay and the picture builds up")
         keep.onChange((v) => {
             this._sweepFadeSeconds = fadeSecondsAt(v)
-            if (this._sweep)
+            if (this.userSweepRunning())
                 this._sweep.setFadeSeconds(this._sweepFadeSeconds)
         })
 
@@ -483,11 +488,19 @@ class FriendlyView {
     }
 
 
+    statusPercent() {
+        const p = this._pattern
+        return p.isStaging() ? p.getStagedPercent() : p.getPercentReady()
+    }
+
+
     syncStatus() {
-        const p = this._pattern.getPercentReady()
+        const p = this.statusPercent()
         const playing = this._slideshow.isPlaying()
         const percent = p >= 100 ? "100%" : `${p.toFixed(1)}%`
-        this._infoStatus.textContent = `#${this._controller.getPatternNumber()}   ${percent}   ${playing ? "slideshow" : ""}`
+        const calculating = this._pattern.isStaging() ? "calculating " : ""
+        this._infoStatus.textContent =
+            `#${this._controller.getPatternNumber()}   ${calculating}${percent}   ${playing ? "slideshow" : ""}`
         this._buttons.play.textContent = playing ? "pause" : "play"
     }
 
@@ -553,9 +566,11 @@ class FriendlyView {
 
     toggleSweep() {
         this.stopSlideshow()
-        if (this._sweep || this._sweepWanted)
+        if (this._sweepWanted)
+            this._sweepWanted = false
+        else if (this.userSweepRunning())
             this.endSweep()
-        else if (this._pattern.done())
+        else if (this._pattern.done() && !this._sweep && !this._staging)
             this.startSweep()
         else
             this._sweepWanted = true
@@ -563,31 +578,105 @@ class FriendlyView {
     }
 
 
+    userSweepRunning() { return this._sweep !== null && !this._sweepIsTransition }
+
+
     startSweep() {
         this._sweepWanted = false
-        const h = this._histogram
+        this.runSweep(false)
+    }
+
+
+    // A transition paints every pixel in its final colors over the old picture
+    // and leaves the new one whole; the user's sweep leaves the trail they set.
+    runSweep(isTransition) {
+        this._sweepIsTransition = isTransition
         const p = this._pattern
-        const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), h.numBins(),
-                                     this.sweepColorFunction(), p.getBitmap(),
-                                     this._sweepSeconds, this._sweepFadeSeconds)
+        const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), this._histogram.numBins(), p.getBitmap(), {
+            colorFunction  : this.sweepColorFunction(),
+            seconds        : this._sweepSeconds,
+            fadeSeconds    : isTransition ? Infinity : this._sweepFadeSeconds,
+            overOldPicture : isTransition
+        })
         this._sweep = sweep.numSteps() ? sweep : null
         this.syncSweepButton()
     }
 
 
-    // The trail is in the color mode as it is, without the window.
+    // The user's trail is in the color mode as it is, without the window.
     sweepColorFunction() {
         const cc = this._colorController
         const d = cc.getDrawingOptions().copy()
-        d.window = false
+        if (!this._sweepIsTransition)
+            d.window = false
         return cc.makeColorFunction(d)
+    }
+
+
+    // A slide stays up for the slideshow's delay once its transition is over.
+    readyForNextSlide() {
+        if (this._staging || this._sweep || !this._pattern.done())
+            return false
+        return performance.now() - this._slideShownAt >= this._slideshow.getDelayMs()
+    }
+
+
+    // The next slide is calculated whole by now, so the window can fit all of
+    // it, and it is built up over the picture on screen in its final colors.
+    startTransition() {
+        this._staging = false
+        this._pattern.commitStaged()
+        this._histogramCounted = 0
+        this._histogramShowsSample = true
+        if (this._autoWindow && this._colorController.getDrawingOptions().window)
+            this.fitWindowTo(this._pattern.getValues())
+        this.pickContrastingNegative()
+        this.syncInfo()
+        this.syncDrawingControls()
+        this.syncGeneratorSliders()
+        this.syncUserFunctions()
+        this.runSweep(true)
+    }
+
+
+    // Light over light or dark over dark, a slide would hardly show while it
+    // builds up, so it takes the other side of what is on screen.
+    pickContrastingNegative() {
+        const cc = this._colorController
+        const plain = cc.getDrawingOptions().copy()
+        plain.negative = false
+        const cf = cc.makeColorFunction(plain)
+        const values = this._pattern.getValues()
+        const bitmap = this._pattern.getBitmap()
+        const picks = Math.min(values.length, 20000)
+        const isLight = (c) => ColorPacking.brightness(c) > 127
+        let lightOnScreen = 0
+        let lightInSlide = 0
+        for (let j = 0; j < picks; ++j) {
+            const i = Math.floor(Math.random() * values.length)
+            if (isLight(bitmap.getPixel(i))) ++lightOnScreen
+            if (isLight(cf(values[i]))) ++lightInSlide
+        }
+        cc.setNegative((lightInSlide > picks / 2) === (lightOnScreen > picks / 2))
+    }
+
+
+    finishTransition() {
+        const sweepWanted = this._sweepWanted
+        this.stopSweep()
+        this._slideShownAt = performance.now()
+        if (sweepWanted)
+            this.startSweep()
     }
 
 
     advanceSweep() {
         const bins = this._sweep.step(performance.now())
         if (bins === null) {
-            this.endSweep()
+            if (this._sweepIsTransition)
+                this.finishTransition()
+            else
+                this.endSweep()
             return
         }
         if (bins !== this._sweepBins) {
@@ -616,6 +705,7 @@ class FriendlyView {
         if (!this._sweep && !this._sweepWanted)
             return
         this._sweep = null
+        this._sweepIsTransition = false
         this._sweepWanted = false
         this._sweepBins = []
         this._histogram.setSweepBins([])
@@ -624,7 +714,7 @@ class FriendlyView {
 
 
     syncSweepButton() {
-        this._buttons.sweep.classList.toggle("on", this._sweep !== null || this._sweepWanted)
+        this._buttons.sweep.classList.toggle("on", this.userSweepRunning() || this._sweepWanted)
     }
 
 
@@ -957,6 +1047,12 @@ class FriendlyView {
             y: Math.floor(a.top + (a.height - side) / 2),
             side: side
         }
+        if (this._staging) {
+            if (this._pattern.stagedReady())
+                this.startTransition()
+            else if (!this._pattern.isStaging())
+                this._staging = false
+        }
         if (this._recolorPending) {
             if (this._sweep)
                 this._sweep.setColorFunction(this.sweepColorFunction())
@@ -977,7 +1073,7 @@ class FriendlyView {
         ctx.restore()
         this._noise.draw(g, g.width, g.height)
 
-        const p = this._pattern.getPercentReady()
+        const p = this.statusPercent()
         if (p !== this._shownPercent) {
             this._shownPercent = p
             this.syncStatus()

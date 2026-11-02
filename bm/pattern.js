@@ -61,6 +61,7 @@ class Pattern {
         this.l = new Logger("Pattern")
         this.l.setActive(false)
         this._colorFunction = null
+        this._staged = null
         this.pickJump()
     }
 
@@ -89,7 +90,53 @@ class Pattern {
         this._formula = f
         this._formulaSource = source
         this._process.dropSaved = true
+        this._staged = null
         this.l.loge()
+    }
+
+
+    // The formula is calculated aside while the pattern stays as it is, values
+    // and all; commitStaged() then swaps it in, done, without painting it.
+    // A redraw that has to recalculate takes the staged formula the usual way.
+    stageFormula(f, source) {
+        this._staged = {
+            formula          : f,
+            source           : source,
+            values           : new Float64Array(this.totalPoints()),
+            pointsCalculated : 0,
+            receivedChunks   : new Map()
+        }
+        ++this._process.gen
+        if (this.calculatesInWorkers())
+            this._workers.startJob(this.makeJob(), source)
+    }
+
+
+    isStaging() { return this._staged !== null }
+
+    stagedReady() { return this._staged !== null && this._staged.pointsCalculated >= this.totalPoints() }
+
+    getStagedPercent() { return this._staged ? 100.0 * this._staged.pointsCalculated / this.totalPoints() : 0 }
+
+
+    commitStaged() {
+        const s = this._staged
+        this._staged = null
+        this._formula = s.formula
+        this._formulaSource = s.source
+        this._values = s.values
+        const p = this._process
+        p.pointsCalculated = p.pointsShown = this.totalPoints()
+        p.receivedChunks.clear()
+        p.dropSaved = false
+    }
+
+
+    adoptStagedFormula() {
+        const s = this._staged
+        this._staged = null
+        this._formula = s.formula
+        this._formulaSource = s.source
     }
 
 
@@ -196,6 +243,8 @@ class Pattern {
     resetProcess(){
         this.l.log("reset process")
         let p = this._process
+        if (p.dropSaved && this._staged)
+            this.adoptStagedFormula()
         if (p.dropSaved) {
             p.pointsCalculated = 0
             p.dropSaved = false
@@ -208,7 +257,10 @@ class Pattern {
     }
 
 
-    calculatesInWorkers() { return this._workers.available() && this._formulaSource !== null }
+    calculatesInWorkers() {
+        const source = this._staged ? this._staged.source : this._formulaSource
+        return this._workers.available() && source !== null
+    }
 
 
     makeJob() {
@@ -227,6 +279,8 @@ class Pattern {
 
 
     draw(silent = false){
+        if (this._staged && !this.calculatesInWorkers())
+            this.calculatePoints(this.pointsInOneDraw())
         if (this.done())
             return
 
@@ -282,6 +336,8 @@ class Pattern {
 
     // Synchronous: for saving a picture right away, or when there are no workers.
     finishNow() {
+        if (this.done())
+            return
         const p = this._process
         this.calculatePoints(this.totalPoints() - p.pointsCalculated)
         this._workers.stopJob()
@@ -290,25 +346,35 @@ class Pattern {
 
 
     calculatePoints(n) {
-        const start = this._process.pointsCalculated
+        const s = this._staged
+        const start = (s || this._process).pointsCalculated
         n = Math.min(n, this.totalPoints() - start)
-        this.receiveChunk(start, calculatePatternChunk(this._formula, this.makeJob(), start, n))
+        const formula = s ? s.formula : this._formula
+        this.receiveChunk(start, calculatePatternChunk(formula, this.makeJob(), start, n))
+    }
+
+
+    // Whatever is calculated while a formula is staged is the staged one's.
+    receiveChunk(start, values) {
+        if (this._staged)
+            this.storeChunk(this._staged, this._staged.values, start, values)
+        else
+            this.storeChunk(this._process, this._values, start, values)
     }
 
 
     // Chunks from the workers can come out of order; pointsCalculated only
     // grows over the contiguous prefix of the reveal order.
-    receiveChunk(start, values) {
-        const p = this._process
-        if (start < p.pointsCalculated)
+    storeChunk(progress, into, start, values) {
+        if (start < progress.pointsCalculated)
             return
         for (let j = 0; j < values.length; ++j)
-            this._values[this.pixelIndex(start + j)] = values[j]
-        p.receivedChunks.set(start, values.length)
-        while (p.receivedChunks.has(p.pointsCalculated)) {
-            const k = p.pointsCalculated
-            p.pointsCalculated += p.receivedChunks.get(k)
-            p.receivedChunks.delete(k)
+            into[this.pixelIndex(start + j)] = values[j]
+        progress.receivedChunks.set(start, values.length)
+        while (progress.receivedChunks.has(progress.pointsCalculated)) {
+            const k = progress.pointsCalculated
+            progress.pointsCalculated += progress.receivedChunks.get(k)
+            progress.receivedChunks.delete(k)
         }
     }
 
