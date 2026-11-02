@@ -61,7 +61,11 @@ html, body {
 .header a { color: var(--text-dim); }
 
 .user-functions { display: flex; flex-direction: column; gap: 2px; }
+.user-function { display: flex; align-items: baseline; gap: 6px; }
+.user-function .weight-glyph { color: var(--text-dim); }
 .user-functions input {
+    flex: 1;
+    min-width: 0;
     font: inherit;
     color: var(--text);
     background: transparent;

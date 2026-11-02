@@ -105,6 +105,19 @@ class ParamController {
 				this.setEqualizedGroup(["◐", "◉", "◎", "◒"])
 			break
 
+			case "ℙ":
+				this.setEqualizedGroup(["ℙ", "2ⁿ", "½", "⚄"])
+			break
+			case "2ⁿ":
+				this.setEqualizedGroup(["2ⁿ", "½", "⚄", "ℙ"])
+			break
+			case "½":
+				this.setEqualizedGroup(["½", "⚄", "ℙ", "2ⁿ"])
+			break
+			case "⚄":
+				this.setEqualizedGroup(["⚄", "ℙ", "2ⁿ", "½"])
+			break
+
 		  	default:
 			break
 			}

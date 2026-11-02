@@ -25,11 +25,15 @@ const ParamTips = {
     "e"   : "weight of exp among the built-in functions",
     "√"   : "weight of sqrt among the built-in functions",
     "tg"  : "weight of tan among the built-in functions",
-    "◉"   : "weight of primes among generated numbers (1/p below 1)",
-    "◎"   : "weight of powers of two among generated numbers",
-    "◒"   : "weight of fractions p/q with a small p or q among generated numbers",
-    "◐"   : "weight of plain numbers among generated numbers: the only kind before",
-    "⛋"   : "chance of mirror symmetry of x and y around the center"
+    "◉"   : "weight of your f₀ among your user functions",
+    "◎"   : "weight of your f₁ among your user functions",
+    "◒"   : "weight of your f₂ among your user functions",
+    "◐"   : "weight of your f₃ among your user functions",
+    "⛋"   : "chance of mirror symmetry of x and y around the center",
+    "ℙ"   : "weight of primes among generated numbers (1/p below 1)",
+    "2ⁿ"  : "weight of powers of two among generated numbers",
+    "½"   : "weight of fractions p/q with a small p or q among generated numbers",
+    "⚄"   : "weight of plain numbers among generated numbers"
 }
 
 
@@ -153,14 +157,17 @@ class FriendlyView {
 
     buildUserFunctions() {
         const subs = ["₀", "₁", "₂", "₃"]
+        const weightParams = this._generator.getUserFunctionParams()
         const div = this.section("user-functions")
         for (let i = 0; i < this._controller.getNumUserFunctions(); ++i) {
+            const glyph = this.text("weight-glyph", weightParams[i])
+            glyph.dataset.tip = `its weight among your functions: the ${weightParams[i]} slider below`
             const input = document.createElement("input")
             input.placeholder = `f${subs[i]}  e.g.  gen + ((y%100 < 50) ? 0 : sin(gen))`
             input.spellcheck = false
             input.dataset.tip = "your function. x, y, w, h, z, x0, y0, numbers a…h, Math functions; "
                               + "gen is replaced by a generated subtree. "
-                              + "used by new formulas when T/U lets it (Enter to check)"
+                              + "used by new formulas as T/U and its weight on the left allow (Enter to check)"
             const check = () => {
                 const ok = this._controller.checkAndSetUserFunction(i, input.value)
                 input.classList.toggle("bad", !ok)
@@ -168,7 +175,7 @@ class FriendlyView {
             input.addEventListener("change", check)
             input.addEventListener("keydown", (e) => { if (e.key === "Enter") input.blur() })
             this._userInputs.push(input)
-            div.append(input)
+            div.append(this.section("user-function", glyph, input))
         }
         return div
     }

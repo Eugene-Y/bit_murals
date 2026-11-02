@@ -6,10 +6,10 @@ class NumberGenerator {
 		this._getParamValCallback = getParamValCallback
 		// the sliders weigh the kinds; [] sets the magnitude for all of them
 		this._kinds = [
-			{ param: "◉", name: "prime" },
-			{ param: "◎", name: "power of two" },
-			{ param: "◒", name: "rational" },
-			{ param: "◐", name: "random" }]
+			{ param: "ℙ", name: "prime" },
+			{ param: "2ⁿ", name: "power of two" },
+			{ param: "½", name: "rational" },
+			{ param: "⚄", name: "random" }]
 		this._maxNumber = Math.pow(10, 10)
 		this._numberSparsity = 10
 		this._numberLogarithm = 10
@@ -159,7 +159,9 @@ class Generator {
 		this._formulaSource = null
         this._params = new Map()
 
-		const nuf = 4
+		// each weighs its user function among the others
+		this._userFunctionParams = ["◉", "◎", "◒", "◐"]
+		const nuf = this._userFunctionParams.length
 		this._userFunctions = new Array(nuf)
 		this._userFunctionsBackup = new Array(nuf)
 		// между введением корректной uf и следующей стрингификацией (мутация например)
@@ -210,12 +212,17 @@ class Generator {
 		p.set("√",  new Param(0.25, 0, 0.7))
 		p.set("tg", new Param(0.25, 0, 0.7))
 
-		p.set("◉", new Param(0))
-		p.set("◎", new Param(0))
-		p.set("◒", new Param(0))
-		p.set("◐", new Param(1))
+		p.set("◉", new Param())
+		p.set("◎", new Param())
+		p.set("◒", new Param())
+		p.set("◐", new Param())
 
 		p.set("⛋", new Param(0, 0, 1))
+
+		p.set("ℙ",  new Param(0))
+		p.set("2ⁿ", new Param(0))
+		p.set("½",  new Param(0))
+		p.set("⚄",  new Param(1))
 	}
 
 
@@ -231,6 +238,8 @@ class Generator {
 	}
 
 	numUserFunctions() { return this._userFunctions.length }
+
+	getUserFunctionParams() { return this._userFunctionParams }
 
 
 	setReadableUserFunctions(r) {
@@ -454,10 +463,11 @@ class Generator {
 		let user = false
 
 		if (numUtils.prob(this.getParamValue("F"))) {
-			if (!this.numValidUserFunctions() || numUtils.prob(this.getParamValue("T/U")))
+			const weights = this.userFunctionWeights()
+			if (!weights.some(w => w > 0) || numUtils.prob(this.getParamValue("T/U")))
 				func = this.transcendentalFunction()
 			else {
-				func = this.userFunction()
+				func = this.userFunction(weights)
 				user = true
 			}
 		}
@@ -515,24 +525,22 @@ class Generator {
 	}
 
 
-    userFunction(){
-		// чтобы отображать польз функции как u0, u1... un
-		// и не раздувать объекты
-		const v = this.numValidUserFunctions()
-    	this.l.assert(v)
-		const p = Math.random()
-		const n = this.numUserFunctions()
-		let u = -1
-		for (let i = 0, j = 1; i < n; ++i)
-			if (this._userFunctions[i].isValid()) {
-				if (j / v >= p) {
-					u = i
-					break
-				}
-				++j
-			}
-		this.l.assert(u >= 0 && u < this.numUserFunctions())
-    	return "u" + u.toString()
+	// An empty or invalid function weighs nothing, whatever its slider says.
+	userFunctionWeights() {
+		return this._userFunctions.map((f, i) =>
+			f.isValid() ? this.getParamValue(this._userFunctionParams[i]) : 0)
+	}
+
+
+	// Named u0, u1… in the formula structure, so nodes stay small.
+	userFunction(weights) {
+		let r = Math.random() * weights.reduce((a, b) => a + b, 0)
+		for (let i = 0; i < weights.length; ++i) {
+			r -= weights[i]
+			if (r < 0)
+				return "u" + i
+		}
+		return "u" + weights.findLastIndex(w => w > 0)
 	}
 
 
