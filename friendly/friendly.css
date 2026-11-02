@@ -60,6 +60,8 @@ html, body {
 .header { display: flex; justify-content: space-between; align-items: baseline; }
 .header .title { color: var(--text); letter-spacing: 0.2em; text-transform: uppercase; }
 .header a { color: var(--text-dim); }
+.title-row { display: flex; align-items: baseline; gap: 10px; }
+.title-row .btn { padding: 0 8px; }
 
 .user-functions { display: flex; flex-direction: column; gap: 2px; }
 .user-function { display: flex; align-items: baseline; gap: 6px; }

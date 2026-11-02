@@ -78,6 +78,7 @@ class FriendlyView {
         this._gifFramesPerYield = 4
         this._gifHoldCs = 200
         this._gifBusy = false
+        this._sweepSliders = {}
         this._staging = false
         this._slideShownAt = 0
         this._longestSweepFadeSeconds = 100
@@ -111,6 +112,7 @@ class FriendlyView {
 
         this._controller.nextPattern()
         this.onPatternChange()
+        this.openLinkedPattern()
         setTimeout(() => { if (!this._slideshowTouched) this.toggleSlideshow() }, 2000)
     }
 
@@ -162,7 +164,10 @@ class FriendlyView {
         link.href = "classic.html"
         link.textContent = "classic version"
         link.dataset.tip = "the original interface: everything on the keyboard and touch zones"
-        return this.section("header", this.text("title", "bit murals"), link)
+        this._buttons.link = this.button("link", "copy a link that opens this pattern with all its settings: "
+                                               + "formula, functions, sliders, framing, drawing, size, auto window, "
+                                               + "sweep time and keep", () => { this.copyLink() })
+        return this.section("header", this.section("title-row", this.text("title", "bit murals"), this._buttons.link), link)
     }
 
 
@@ -229,6 +234,7 @@ class FriendlyView {
         // a tap can hit.
         const longest = this._longestSweepFadeSeconds
         const keep = new BarSlider("keep", new LogScale(-1, Math.log10(longest) + 0.15))
+        this._sweepSliders.keep = keep
         const fadeSecondsAt = (v) => v > longest ? Infinity : v
         keep.setDefaultValue(this._sweepFadeSeconds)
         keep.setValue(this._sweepFadeSeconds)
@@ -246,6 +252,7 @@ class FriendlyView {
         })
 
         const time = new BarSlider("time", new LinearScale(0, 16))
+        this._sweepSliders.time = time
         time.setStep(0.25)
         time.setDefaultValue(this._sweepSeconds)
         time.setValue(this._sweepSeconds)
@@ -945,6 +952,69 @@ class FriendlyView {
     load() {
         this.stopSlideshow()
         this._importExport.loadSettingsFromFilePicker((s) => { this.loadParsedSettings(s) })
+    }
+
+
+    // Safari lets a copy through only inside the click, so the clipboard is
+    // handed the link as a promise of it.
+    async copyLink() {
+        const link = this._importExport.makeLink(this._controller.getCurrentSettingsCopy(), this.linkView())
+        const button = this._buttons.link
+        try {
+            const text = link.then((s) => new Blob([s], { type: "text/plain" }))
+            await navigator.clipboard.write([new ClipboardItem({ "text/plain": text })])
+            button.textContent = "copied"
+            setTimeout(() => { button.textContent = "link" }, 1500)
+        }
+        catch (e) {
+            window.prompt("the link to this pattern", await link)
+        }
+    }
+
+
+    // An endless keep goes into JSON as null.
+    linkView() {
+        return {
+            size             : this._framingSides[this._framingId],
+            autoWindow       : this._autoWindow,
+            sweepSeconds     : this._sweepSeconds,
+            sweepFadeSeconds : this._sweepFadeSeconds
+        }
+    }
+
+
+    // The pattern from a link replaces the first one, and the slideshow
+    // doesn't start by itself. The window is the one saved, not refitted.
+    async openLinkedPattern() {
+        if (!location.hash.startsWith("#s="))
+            return
+        this._slideshowTouched = true
+        const s = await this._importExport.parseLink(location.hash)
+        if (!s)
+            return
+        const v = s.view || {}
+        this.applyLinkedView(v)
+        const autoWindow = "autoWindow" in v ? v.autoWindow : this._autoWindow
+        this.setAutoWindow(false)
+        this.loadParsedSettings(s)
+        this.setAutoWindow(autoWindow)
+    }
+
+
+    applyLinkedView(v) {
+        const sizeId = this._framingSides.indexOf(v.size)
+        if (sizeId >= 0 && sizeId !== this._framingId) {
+            this._framingId = sizeId
+            this.applyFraming()
+        }
+        if (typeof v.sweepSeconds === "number") {
+            this._sweepSeconds = v.sweepSeconds
+            this._sweepSliders.time.setValue(v.sweepSeconds)
+        }
+        if ("sweepFadeSeconds" in v) {
+            this._sweepFadeSeconds = v.sweepFadeSeconds === null ? Infinity : v.sweepFadeSeconds
+            this._sweepSliders.keep.setValue(this._sweepFadeSeconds)
+        }
     }
 
 

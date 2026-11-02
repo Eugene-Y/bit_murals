@@ -39,6 +39,14 @@ class ImportExport {
 
     saveSettings(s){
         this.l.log("saving settings")
+        const jss = JSON.stringify(this.settingsJSON(s), null, 4)
+        const fname = "bm_" + this._dateString + ".txt"
+        this._p5.saveStrings([jss], fname)
+    }
+
+
+    // What a settings file holds; a link holds the same.
+    settingsJSON(s) {
         let j = {}
         j.name = "bit murals"
         j.date = this._dateString
@@ -50,10 +58,61 @@ class ImportExport {
         j.drawingOptions = s.drawingOptions
         j.numbers = s.numbers
         j.params = Object.fromEntries(s.params)
+        return j
+    }
 
-        const jss = JSON.stringify(j, null, 4)
-        const fname = "bm_" + this._dateString + ".txt"
-        this._p5.saveStrings([jss], fname)
+
+    // The settings, deflated, go after #, which never reaches the server.
+    // view: what the page shows them with, beyond the settings file. The
+    // formula goes in plain: deflate packs it into half of what it makes of
+    // the LZW-compressed one a file holds.
+    async makeLink(s, view) {
+        const j = this.settingsJSON(s)
+        delete j.readableFormula
+        delete j.date
+        delete j.compressedFormula
+        j.thinFormula = s.formulaStructure.compress()
+        j.view = view
+        const json = new TextEncoder().encode(JSON.stringify(j))
+        const packed = await ImportExport.pipeThrough(json, new CompressionStream("deflate-raw"))
+        return location.origin + location.pathname + "#s=" + ImportExport.toBase64Url(packed)
+    }
+
+
+    // Settings with their view, or undefined if the hash holds none.
+    async parseLink(hash) {
+        const m = /^#s=([A-Za-z0-9_-]+)$/.exec(hash)
+        if (!m)
+            return undefined
+        try {
+            const packed = ImportExport.fromBase64Url(m[1])
+            const json = await ImportExport.pipeThrough(packed, new DecompressionStream("deflate-raw"))
+            return this.parseSettingsJSON(new TextDecoder().decode(json))
+        }
+        catch (e) {
+            this.l.warn("could not read the link:", e)
+            return undefined
+        }
+    }
+
+
+    static async pipeThrough(bytes, stream) {
+        const out = new Response(new Blob([bytes]).stream().pipeThrough(stream))
+        return new Uint8Array(await out.arrayBuffer())
+    }
+
+
+    static toBase64Url(bytes) {
+        let s = ""
+        for (let i = 0; i < bytes.length; ++i)
+            s += String.fromCharCode(bytes[i])
+        return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+    }
+
+
+    static fromBase64Url(s) {
+        const b = atob(s.replace(/-/g, "+").replace(/_/g, "/"))
+        return Uint8Array.from(b, (c) => c.charCodeAt(0))
     }
 
 
@@ -67,7 +126,11 @@ class ImportExport {
 
     decompressFormula(str){
         const arr = str.split(",").map(Number)
-        const thin = lzwCompress.unpack(arr)
+        return this.formulaFromThin(lzwCompress.unpack(arr))
+    }
+
+
+    formulaFromThin(thin) {
         let f = new FormulaNode()
         f.decompress(thin)
         return f
@@ -112,10 +175,13 @@ class ImportExport {
             if (j.name !== "bit murals")
                 throw "the file is not a bit murals settings"
 
-            if (!j.hasOwnProperty("compressedFormula"))
+            if (j.hasOwnProperty("thinFormula"))
+                j.formulaStructure = this.formulaFromThin(j.thinFormula)
+            else if (j.hasOwnProperty("compressedFormula"))
+                j.formulaStructure = this.decompressFormula(j.compressedFormula)
+            else
                 throw "no formula in settings. aborting load"
-
-            j.formulaStructure = this.decompressFormula(j.compressedFormula)
+            delete j.thinFormula
             delete j.compressedFormula
 
             return j
