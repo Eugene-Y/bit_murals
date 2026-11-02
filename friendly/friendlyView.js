@@ -71,7 +71,7 @@ class FriendlyView {
         this._sweep = null
         this._sweepWanted = false
         this._sweepBins = []
-        this._sweepSeconds = 8
+        this._sweepSeconds = 4
         this._sweepFadeSeconds = 1
         this._sweepIsTransition = false
         this._gifFps = 20
@@ -501,11 +501,12 @@ class FriendlyView {
     }
 
 
-    // As on the classic page: ▶ drawing, ▷ the slideshow waits, | | paused.
+    // ▶ drawing, ▷ the slideshow waits, ⏸ paused; U+FE0E keeps the pause sign
+    // a text glyph where it would turn into a color emoji.
     statusText() {
         const p = this.statusPercent()
         const drawing = !this._pattern.done() || this._staging || this._sweep !== null
-        const process = drawing ? "▶" : this._slideshow.isPlaying() ? "▷" : "| |"
+        const process = drawing ? "▶" : this._slideshow.isPlaying() ? "▷" : "⏸\uFE0E"
         const percent = p >= 100 ? "100%" : `${p.toFixed(1)}%`
         const calculating = this._pattern.isStaging() ? "calculating " : ""
         return `${process}   #${this._controller.getPatternNumber()}   ${calculating}${percent}`
