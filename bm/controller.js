@@ -356,12 +356,12 @@ class Controller {
     }
 
 
-    nextPatternFromLoadedSettings(s){
+    nextPatternFromLoadedSettings(s, staged = false){
         this.l.clear()
         this.l.logc("next pattern from settings")
         this.updateCurrentPanZoomAndDrawingOptionsRecord()
         this.goToLastHistoryItem()
-        this.loadSettings(s, true)
+        this.loadSettings(s, true, staged)
         this.addCurrentPatternToHistory()
         ++this._currentHistoryPos
         this.l.loge()

@@ -80,6 +80,7 @@ class FriendlyView {
         this._gifBusy = false
         this._sweepSliders = {}
         this._staging = false
+        this._transitionKeepsLook = false
         this._slideShownAt = 0
         this._longestSweepFadeSeconds = 100
         this._minWindowDecades = 1e-4
@@ -646,14 +647,20 @@ class FriendlyView {
 
     // The next slide is calculated whole by now, so the window can fit all of
     // it, and it is built up over the picture on screen in its final colors.
+    // A loaded one keeps its look, so it is the screen that takes the other
+    // side when they'd match.
     startTransition() {
         this._staging = false
         this._pattern.commitStaged()
         this._histogramCounted = 0
         this._histogramShowsSample = true
-        if (this._autoWindow && this._colorController.getDrawingOptions().window)
-            this.fitWindowTo(this._pattern.getValues())
-        this.pickContrastingNegative()
+        if (this._transitionKeepsLook)
+            this.contrastScreenWithSlide()
+        else {
+            if (this._autoWindow && this._colorController.getDrawingOptions().window)
+                this.fitWindowTo(this._pattern.getValues())
+            this.pickContrastingNegative()
+        }
         this.syncInfo()
         this.syncDrawingControls()
         this.syncGeneratorSliders()
@@ -668,7 +675,20 @@ class FriendlyView {
         const cc = this._colorController
         const plain = cc.getDrawingOptions().copy()
         plain.negative = false
-        const cf = cc.makeColorFunction(plain)
+        const [screenIsLight, slideIsLight] = this.mostlyLight(cc.makeColorFunction(plain))
+        cc.setNegative(slideIsLight === screenIsLight)
+    }
+
+
+    contrastScreenWithSlide() {
+        const [screenIsLight, slideIsLight] = this.mostlyLight(this._colorController.getColorFunction())
+        if (screenIsLight === slideIsLight)
+            this._pattern.getBitmap().fill(ColorPacking.gray(slideIsLight ? 40 : 240))
+    }
+
+
+    // [the screen, the slide in the colors of colorFunction], from a sample.
+    mostlyLight(colorFunction) {
         const values = this._pattern.getValues()
         const bitmap = this._pattern.getBitmap()
         const picks = Math.min(values.length, 20000)
@@ -678,9 +698,9 @@ class FriendlyView {
         for (let j = 0; j < picks; ++j) {
             const i = Math.floor(Math.random() * values.length)
             if (isLight(bitmap.getPixel(i))) ++lightOnScreen
-            if (isLight(cf(values[i]))) ++lightInSlide
+            if (isLight(colorFunction(values[i]))) ++lightInSlide
         }
-        cc.setNegative((lightInSlide > picks / 2) === (lightOnScreen > picks / 2))
+        return [lightOnScreen > picks / 2, lightInSlide > picks / 2]
     }
 
 
@@ -763,7 +783,8 @@ class FriendlyView {
 
     // Another pattern is calculated aside, then built up over the one on
     // screen. Nothing is staged at the start of history or by a failed mutation.
-    transitionTo(callToController) {
+    transitionTo(callToController, keepsLook = false) {
+        this._transitionKeepsLook = keepsLook
         callToController()
         if (this._pattern.isStaging()) {
             this._staging = true
@@ -995,10 +1016,9 @@ class FriendlyView {
             return
         const v = s.view || {}
         this.applyLinkedView(v)
-        const autoWindow = "autoWindow" in v ? v.autoWindow : this._autoWindow
-        this.setAutoWindow(false)
+        if ("autoWindow" in v)
+            this.setAutoWindow(v.autoWindow)
         this.loadParsedSettings(s)
-        this.setAutoWindow(autoWindow)
     }
 
 
@@ -1023,11 +1043,10 @@ class FriendlyView {
         if (typeof s === "undefined")
             return
         this._controller.eraseMutationBookmark()
-        this._controller.nextPatternFromLoadedSettings(s)
+        this.transitionTo(() => this._controller.nextPatternFromLoadedSettings(s, true), true)
         const d = s.drawingOptions
         if (d && !("windowDecades" in d))
             this._colorController.convertThresholdToWindow()
-        this.onPatternChange()
     }
 
 
