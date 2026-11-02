@@ -89,21 +89,18 @@ class PatternBitmap {
     }
 
 
-    // keep: the share of each pixel's distance to the background left after
-    // one call. Unlike fadeToBackground, the distance always shrinks, so every
-    // pixel gets to the background in the end.
-    decayToBackground(keep) {
-        const px = this._pixels
+    copyPixels() { return this._pixels.slice() }
+
+
+    // level 1 is the color itself, 0 the background.
+    setPixelBlended(i, packedColor, level) {
         const bg = this._background
-        const k = Math.max(0, Math.min(255, Math.floor(keep * 256)))
-        const decay = (c) => {
-            const d = c - bg
-            return bg + (d >= 0 ? (d * k) >> 8 : -((-d * k) >> 8))
-        }
-        for (let i = 0; i < px.length; ++i) {
-            const c = px[i]
-            px[i] = ColorPacking.rgba(decay(c & 0xff), decay((c >>> 8) & 0xff), decay((c >>> 16) & 0xff))
-        }
+        const r = packedColor & 0xff
+        const g = (packedColor >>> 8) & 0xff
+        const b = (packedColor >>> 16) & 0xff
+        this._pixels[i] = ColorPacking.rgba(Math.round(bg + (r - bg) * level),
+                                            Math.round(bg + (g - bg) * level),
+                                            Math.round(bg + (b - bg) * level))
         this._dirty = true
     }
 

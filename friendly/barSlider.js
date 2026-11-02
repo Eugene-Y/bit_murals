@@ -16,6 +16,7 @@ class BarSlider {
         this._fineUnitsPerPx = 0.01
         this._wheelUnits = 0.1
         this._wheelEnabled = true
+        this._step = 0
         this._format = ScaleUtils.formatNumber
         this._onChange = () => {}
 
@@ -62,6 +63,9 @@ class BarSlider {
 
     setDefaultValue(v) { this._defaultValue = v }
 
+    // Every change lands on a multiple of it; 0 lets the value be anything.
+    setStep(step) { this._step = step }
+
     setVisible(v) { this._el.hidden = !v }
 
     onChange(cb) { this._onChange = cb }
@@ -81,6 +85,8 @@ class BarSlider {
 
 
     change(v) {
+        if (this._step)
+            v = Math.round(v / this._step) * this._step
         this.setValue(v)
         this._onChange(this._value)
     }

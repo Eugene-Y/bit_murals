@@ -71,6 +71,8 @@ class FriendlyView {
         this._sweep = null
         this._sweepWanted = false
         this._sweepBins = []
+        this._sweepSeconds = 8
+        this._sweepKept = 0
         this._minWindowDecades = 1e-4
         this.l = new Logger("Friendly View")
     }
@@ -113,6 +115,7 @@ class FriendlyView {
             this.buildUserFunctions(),
             this.buildInfo(),
             this.buildTransport(),
+            this.buildSweep(),
             this.buildModes(),
             this.buildTone(),
             this.buildHints(),
@@ -204,11 +207,44 @@ class FriendlyView {
                                         + "resizing the browser window keeps it  [f, shift+f back]", () => { this.nextFraming(1) })
         b.save      = this.button("save", "save the picture and a settings file  [↓]", () => { this.save() })
         b.load      = this.button("load", "load a settings file, or drop it on the page  [↑]", () => { this.load() })
-        b.sweep     = this.button("sweep", "run through the values from zero outward, skipping empty stretches, "
-                                         + "with a fading trail. starts once the pattern is done  [p]",
-                                  () => { this.toggleSweep() })
         return this.section("buttons transport",
-                            b.prev, b.next, b.play, b.randomize, b.mutate, b.framing, b.sweep, b.save, b.load)
+                            b.prev, b.next, b.play, b.randomize, b.mutate, b.framing, b.save, b.load)
+    }
+
+
+    buildSweep() {
+        this._buttons.sweep = this.button("sweep", "run through the values from zero outward, skipping empty stretches, "
+                                                 + "with a fading trail. starts once the pattern is done  [p]",
+                                          () => { this.toggleSweep() })
+
+        const kept = new BarSlider("keep", new LinearScale(0, 1))
+        kept.setDefaultValue(0)
+        kept.setValue(this._sweepKept)
+        kept.setFineStep(0.002, 0.05)
+        kept.setReadoutFormatter((v) => `${Math.round(100 * v)}%`)
+        kept.setTooltip("brightness the passed values settle at. 0: they fade away, "
+                      + "100%: they stay and the picture builds up")
+        kept.onChange((v) => {
+            this._sweepKept = v
+            if (this._sweep)
+                this._sweep.setKept(v)
+        })
+
+        const time = new BarSlider("time", new LinearScale(0, 16))
+        time.setStep(0.25)
+        time.setDefaultValue(this._sweepSeconds)
+        time.setValue(this._sweepSeconds)
+        time.setFineStep(0.02, 0.25)
+        time.setReadoutFormatter((v) => `${v} s`)
+        time.setTooltip("how long the sweep runs. each frame lights the values due by then, "
+                      + "so a shorter sweep lights them in bigger batches")
+        time.onChange((v) => {
+            this._sweepSeconds = v
+            if (this._sweep)
+                this._sweep.setSeconds(v, performance.now())
+        })
+
+        return this.section("sweep-row", this._buttons.sweep, kept.element(), time.element())
     }
 
 
@@ -528,7 +564,8 @@ class FriendlyView {
         const h = this._histogram
         const p = this._pattern
         const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), h.numBins(),
-                                     cc.makeColorFunction(d), p.getBitmap())
+                                     cc.makeColorFunction(d), p.getBitmap(),
+                                     this._sweepSeconds, this._sweepKept)
         this._sweep = sweep.numSteps() ? sweep : null
         this.syncSweepButton()
     }
@@ -547,11 +584,16 @@ class FriendlyView {
     }
 
 
-    // The picture comes back the way it first emerged.
+    // The picture comes back the way it first emerged, unless the sweep has
+    // built it up whole: then emerging again would only blink it away.
     endSweep() {
         const wasRunning = this._sweep !== null
         this.stopSweep()
-        if (wasRunning)
+        if (!wasRunning)
+            return
+        if (this._sweepKept >= 0.995) // what the readout shows as 100%
+            this._recolorPending = true
+        else
             this._pattern.startRedraw()
     }
 

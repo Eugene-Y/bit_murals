@@ -3,8 +3,9 @@
 
 
 // Runs over the values from zero outward, negative and positive together,
-// lighting up the pixels in turn and leaving a fading trail. Zeros are left
-// out: they'd usually flood the picture.
+// lighting up the pixels in turn and leaving a trail that fades down to the
+// kept brightness: at 0 the passed values go dark, at 1 the picture builds
+// up. Zeros are left out: they'd usually flood the picture.
 //
 // The way is cut into steps much finer than the histogram's bins, so a narrow
 // band is still passed through rather than flashed at once. Only non-empty
@@ -13,14 +14,15 @@
 // sparse stretches between groups of values would leave the picture dark.
 // Inside a step, pixels light up in the pattern's reveal order, like it emerged.
 class ValueSweep {
-    constructor(values, revealOrder, numHistogramBins, colorFunction, bitmap) {
-        this._minSeconds = 2
-        this._maxSeconds = 16
-        this._maxSecondsPerStep = 1.5 // a big area of one value fills in no slower
+    constructor(values, revealOrder, numHistogramBins, colorFunction, bitmap, seconds, kept) {
+        this._seconds = seconds
+        this._kept = kept
+        this._maxSecondsPerStep = 1.5 // before stretching to the whole time
         this._stepsPerHistogramBin = 64
         this._timeByPixels = 0.7      // the rest of the time is split evenly between steps
-        this._trailSeconds = 1        // the trail fades to almost nothing over this
-        this._trailLeft = 0.03        // what "almost nothing" is
+        this._trailSeconds = 1        // the trail fades to almost the kept brightness over this
+        this._trailLeft = 0.03        // what "almost" is
+        this._settledGlow = 1 / 512   // below a gray level, so the pixel can stop changing
 
         this._axis = new SymLogScale()
         this._numHistogramBins = numHistogramBins
@@ -29,6 +31,12 @@ class ValueSweep {
         this._values = values
         this.groupPixelsBySteps(values, revealOrder)
         this.planTime()
+
+        // The picture from before the sweep fades out like a trail that keeps nothing.
+        this._colors = bitmap.copyPixels()
+        this._glow = new Float32Array(values.length).fill(1)
+        this._lit = new Uint8Array(values.length)
+        this._repaintKept = false
 
         this._startMs = null
         this._lastMs = null
@@ -94,7 +102,8 @@ class ValueSweep {
     }
 
 
-    // Capping steps makes the sweep shorter than the max, but not than the min.
+    // The cap keeps a big area of one value from taking most of the time;
+    // the stretch gives what it frees to the other steps.
     planTime() {
         const n = this.numSteps()
         const numPixels = this._stepPixels.length
@@ -103,11 +112,10 @@ class ValueSweep {
         for (let s = 0; s < n; ++s) {
             const pixels = this._stepStarts[s + 1] - this._stepStarts[s]
             const share = (1 - this._timeByPixels) / n + this._timeByPixels * pixels / numPixels
-            stepSeconds[s] = Math.min(this._maxSecondsPerStep, share * this._maxSeconds)
+            stepSeconds[s] = Math.min(this._maxSecondsPerStep, share * this._seconds)
             total += stepSeconds[s]
         }
-        const stretch = Math.max(1, this._minSeconds / total)
-        this._seconds = total * stretch
+        const stretch = total > 0 ? this._seconds / total : 0
         this._stepEnds = new Float64Array(n)
         let t = 0
         for (let s = 0; s < n; ++s) {
@@ -120,6 +128,32 @@ class ValueSweep {
     trailSeconds() { return Math.min(this._trailSeconds, this._seconds / 4) }
 
 
+    glowLeftAfter(dt) {
+        const trail = this.trailSeconds()
+        if (trail > 0)
+            return Math.pow(this._trailLeft, dt / trail)
+        return dt > 0 ? 0 : 1
+    }
+
+
+    // Keeps the share of the way already passed.
+    setSeconds(seconds, nowMs) {
+        if (this._startMs !== null) {
+            const progress = this._seconds > 0 ? (nowMs - this._startMs) / 1000 / this._seconds : 1
+            this._startMs = nowMs - progress * seconds * 1000
+        }
+        this._seconds = seconds
+        this.planTime()
+        this._currentStep = 0
+    }
+
+
+    setKept(kept) {
+        this._kept = kept
+        this._repaintKept = true
+    }
+
+
     // Advances to the time now; returns the histogram bins of the leading
     // step, or null once the trail has faded after the last one.
     step(nowMs) {
@@ -127,8 +161,8 @@ class ValueSweep {
             this._startMs = this._lastMs = nowMs
         const dt = (nowMs - this._lastMs) / 1000
         this._lastMs = nowMs
-        if (dt > 0)
-            this._bitmap.decayToBackground(Math.pow(this._trailLeft, dt / this.trailSeconds()))
+        if (dt > 0 || this._repaintKept)
+            this.fade(this.glowLeftAfter(dt))
 
         const elapsed = (nowMs - this._startMs) / 1000
         const n = this.numSteps()
@@ -142,11 +176,33 @@ class ValueSweep {
     }
 
 
+    // keep: the share of the glow left after this frame.
+    fade(keep) {
+        const glow = this._glow
+        const lit = this._lit
+        const colors = this._colors
+        const kept = this._kept
+        const repaint = this._repaintKept
+        this._repaintKept = false
+        for (let i = 0; i < glow.length; ++i) {
+            let g = glow[i]
+            if (g === 0 && !(repaint && lit[i]))
+                continue
+            g *= keep
+            if (g < this._settledGlow)
+                g = 0
+            glow[i] = g
+            const floor = lit[i] ? kept : 0
+            this._bitmap.setPixelBlended(i, colors[i], floor + (1 - floor) * g)
+        }
+    }
+
+
     pixelsDueAt(elapsed) {
         const s = this._currentStep
         const begin = s ? this._stepEnds[s - 1] : 0
         const end = this._stepEnds[s]
-        const part = Math.min(1, Math.max(0, (elapsed - begin) / (end - begin)))
+        const part = end > begin ? Math.min(1, Math.max(0, (elapsed - begin) / (end - begin))) : 1
         const first = this._stepStarts[s]
         return first + Math.floor(part * (this._stepStarts[s + 1] - first))
     }
@@ -157,7 +213,10 @@ class ValueSweep {
         const values = this._values
         for (; this._litPixels < due; ++this._litPixels) {
             const i = this._stepPixels[this._litPixels]
-            this._bitmap.setPixel(i, cf(values[i]))
+            this._colors[i] = cf(values[i])
+            this._glow[i] = 1
+            this._lit[i] = 1
+            this._bitmap.setPixel(i, this._colors[i])
         }
     }
 }
