@@ -110,8 +110,7 @@ class FriendlyView {
         this.resizeCanvas()
         this.applyFraming()
 
-        this._controller.nextPattern()
-        this.onPatternChange()
+        this.transitionTo(() => this._controller.nextPattern(true, true))
         this.openLinkedPattern()
         // A link opened where the page already is only changes the hash.
         window.addEventListener("hashchange", () => { this.openLinkedPattern() })
