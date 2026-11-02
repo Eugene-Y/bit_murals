@@ -5,10 +5,13 @@
 // Runs over the values from zero outward, negative and positive together,
 // lighting up the pixels in turn and leaving a trail that fades out over the
 // fade time; with an infinite one the picture builds up. Zeros come last.
-// The canvas the trail fades into is the color most of the finished picture
-// has, so the sweep runs on the picture's own background; the pixels already
-// in that color are left out. Over the old picture, as a transition from it,
-// every pixel is painted and the old one doesn't fade: it is covered.
+// The canvas follows the finished picture. A trail runs over the picture's
+// own background, the color most of it has, and the pixels of that color
+// flash in the contrasting gray, else the wave would pass them unseen. A
+// build-up starts from the gray contrasting with the picture, like a
+// transition from a contrasting slide, and the pixels already in that gray are
+// left out. Over the old picture, as a transition from it, every pixel is
+// painted and the old one doesn't fade: it is covered.
 //
 // The way is cut into steps much finer than the histogram's bins, so a narrow
 // band is still passed through rather than flashed at once. Only non-empty
@@ -31,6 +34,8 @@ class ValueSweep {
         this._fadedLeft = 0.03        // the glow a pixel has left when it counts as faded
         this._settledGlow = 1 / 512   // below a gray level, so the pixel can stop changing
         this._backgroundShare = 1 / 3 // a color covering less isn't the background; zero's color is
+        this._darkGray = ColorPacking.gray(40)
+        this._lightGray = ColorPacking.gray(240)
 
         this._axis = new SymLogScale()
         this._numHistogramBins = numHistogramBins
@@ -38,7 +43,7 @@ class ValueSweep {
         this._values = values
         this._revealOrder = revealOrder
         this.takeColors(look.colorFunction)
-        this._canvas = this.pickCanvas()
+        this.chooseCanvas()
         this.groupPixelsBySteps()
         this.planTime()
 
@@ -69,13 +74,37 @@ class ValueSweep {
     }
 
 
+    buildsUp() { return this._fadeSeconds === Infinity }
+
+
     // A transition covers the old picture whole, so its canvas never shows.
-    pickCanvas() {
+    chooseCanvas() {
         const zeroColor = this._colorFunction(0)
+        this._flashesAll = false
         if (this._overOldPicture)
-            return zeroColor
+            this._canvas = zeroColor
+        else if (this.buildsUp())
+            this._canvas = this.lightShare() > 0.5 ? this._darkGray : this._lightGray
+        else {
+            const [top, share] = this.mostCommonColor()
+            this._flashesAll = share >= this._backgroundShare
+            this._canvas = this._flashesAll ? top : zeroColor
+        }
+    }
+
+
+    lightShare() {
+        let light = 0
+        for (const c of this._finalColors)
+            if (ColorPacking.brightness(c) > 127)
+                ++light
+        return light / this._finalColors.length
+    }
+
+
+    mostCommonColor() {
         const counts = new Map()
-        let top = zeroColor
+        let top = 0
         let topCount = 0
         for (const c of this._finalColors) {
             const n = (counts.get(c) || 0) + 1
@@ -85,11 +114,19 @@ class ValueSweep {
                 topCount = n
             }
         }
-        return topCount >= this._backgroundShare * this._finalColors.length ? top : zeroColor
+        return [top, topCount / this._finalColors.length]
     }
 
 
-    paints(i) { return this._overOldPicture || this._finalColors[i] !== this._canvas }
+    paints(i) { return this._overOldPicture || this._flashesAll || this._finalColors[i] !== this._canvas }
+
+
+    flashColor(i) {
+        const c = this._finalColors[i]
+        if (c !== this._canvas)
+            return c
+        return ColorPacking.brightness(c) > 127 ? this._darkGray : this._lightGray
+    }
 
 
     numSteps() { return this._stepDistances.length }
@@ -219,22 +256,30 @@ class ValueSweep {
     }
 
 
-    setFadeSeconds(fadeSeconds) { this._fadeSeconds = fadeSeconds }
+    setFadeSeconds(fadeSeconds) {
+        const builtUp = this.buildsUp()
+        this._fadeSeconds = fadeSeconds
+        if (this.buildsUp() !== builtUp)
+            this.replan()
+    }
+
+
+    setColorFunction(colorFunction) {
+        this.takeColors(colorFunction)
+        this.replan()
+    }
 
 
     // Another canvas changes which pixels are painted, so the way is cut
     // anew; the pixels it has passed by now count as passed, lit or not.
-    setColorFunction(colorFunction) {
-        this.takeColors(colorFunction)
+    replan() {
+        const canvas = this._canvas
+        this.chooseCanvas()
         for (let i = 0; i < this._lit.length; ++i)
             if (this._lit[i])
-                this._colors[i] = this._finalColors[i]
+                this._colors[i] = this.flashColor(i)
         this._repaintLit = true
-        const canvas = this.pickCanvas()
-        if (canvas === this._canvas)
-            return
-        this._canvas = canvas
-        this._repaintAll = true
+        this._repaintAll ||= this._canvas !== canvas
         this.groupPixelsBySteps()
         this.planTime()
         this._currentStep = 0
@@ -312,7 +357,7 @@ class ValueSweep {
     lightUpTo(due) {
         for (; this._litPixels < due; ++this._litPixels) {
             const i = this._stepPixels[this._litPixels]
-            this._colors[i] = this._finalColors[i]
+            this._colors[i] = this.flashColor(i)
             this._glow[i] = 1
             this._lit[i] = 1
             this._bitmap.setPixel(i, this._colors[i])
