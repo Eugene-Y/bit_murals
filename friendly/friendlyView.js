@@ -508,12 +508,12 @@ class FriendlyView {
     }
 
 
-    // ▶ drawing, ▷ the slideshow waits, ⏸ paused; U+FE0E keeps the pause sign
-    // a text glyph where it would turn into a color emoji.
+    // ▶ drawing, ▷ the slideshow waits, ▮▮ paused: shapes of one set, none of
+    // them turned into a color emoji, as ⏸ is on Android.
     statusText() {
         const p = this.statusPercent()
         const drawing = !this._pattern.done() || this._staging || this._sweep !== null
-        const process = drawing ? "▶" : this._slideshow.isPlaying() ? "▷" : "⏸\uFE0E"
+        const process = drawing ? "▶" : this._slideshow.isPlaying() ? "▷" : "▮▮"
         const percent = p >= 100 ? "100%" : `${p.toFixed(1)}%`
         const calculating = this._pattern.isStaging() ? "calculating " : ""
         return `${process}   #${this._controller.getPatternNumber()}   ${calculating}${percent}`
