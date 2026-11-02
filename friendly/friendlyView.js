@@ -908,12 +908,12 @@ class FriendlyView {
         const [w, h] = p.getWidthAndHight()
         const colorFunction = this._colorController.getColorFunction()
         const bitmap = new PatternBitmap(w, h)
-        bitmap.fill(colorFunction(0))
         const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), this._histogram.numBins(), bitmap, {
             colorFunction  : colorFunction,
             seconds        : this._sweepSeconds,
             fadeSeconds    : this._sweepFadeSeconds,
-            overOldPicture : true
+            overOldPicture : false,
+            fromCanvas     : true
         })
         const gif = new GifEncoder(w, h)
         const frameMs = 1000 / this._gifFps

@@ -4,10 +4,11 @@
 
 // Runs over the values from zero outward, negative and positive together,
 // lighting up the pixels in turn and leaving a trail that fades out over the
-// fade time; with an infinite one the picture builds up. Zeros are left out:
-// they'd usually flood the picture. Over the old picture, as a transition from
-// it, every pixel is painted, zeros last, and the old one doesn't fade: it is
-// covered.
+// fade time; with an infinite one the picture builds up. Zeros come last.
+// The canvas the trail fades into is the color most of the finished picture
+// has, so the sweep runs on the picture's own background; the pixels already
+// in that color are left out. Over the old picture, as a transition from it,
+// every pixel is painted and the old one doesn't fade: it is covered.
 //
 // The way is cut into steps much finer than the histogram's bins, so a narrow
 // band is still passed through rather than flashed at once. Only non-empty
@@ -16,34 +17,41 @@
 // sparse stretches between groups of values would leave the picture dark.
 // Inside a step, pixels light up in the pattern's reveal order, like it emerged.
 class ValueSweep {
-    // look: { colorFunction, seconds, fadeSeconds, overOldPicture }
+    // look: { colorFunction, seconds, fadeSeconds, overOldPicture, fromCanvas }
+    // fromCanvas: the bitmap starts as the bare canvas, not the picture on it.
     constructor(values, revealOrder, numHistogramBins, bitmap, look) {
         this._seconds = look.seconds
         this._fadeSeconds = look.fadeSeconds
         this._overOldPicture = look.overOldPicture
+        this._fromCanvas = Boolean(look.fromCanvas)
         this._maxSecondsPerStep = 1.5 // before stretching to the whole time
         this._stepsPerHistogramBin = 64
         this._timeByPixels = 0.7      // the rest of the time is split evenly between steps
         this._clearSeconds = 1        // the picture from before the sweep fades out over this
         this._fadedLeft = 0.03        // the glow a pixel has left when it counts as faded
         this._settledGlow = 1 / 512   // below a gray level, so the pixel can stop changing
+        this._backgroundShare = 1 / 3 // a color covering less isn't the background; zero's color is
 
         this._axis = new SymLogScale()
         this._numHistogramBins = numHistogramBins
         this._bitmap = bitmap
-        this._colorFunction = look.colorFunction
-        // What the pattern looks like where it is all zero: dark in plain
-        // mode, but bright in the negative, where the values are the dark ones.
-        this._canvas = look.colorFunction(0)
         this._values = values
-        this.groupPixelsBySteps(values, revealOrder)
+        this._revealOrder = revealOrder
+        this.takeColors(look.colorFunction)
+        this._canvas = this.pickCanvas()
+        this.groupPixelsBySteps()
         this.planTime()
 
         this._colors = bitmap.copyPixels()
         this._glow = new Float32Array(values.length).fill(1)
         this._lit = new Uint8Array(values.length)
+        if (this._fromCanvas) {
+            bitmap.fill(this._canvas)
+            this._glow.fill(0)
+        }
         this._repaintLit = false
         this._repaintAll = false
+        this._replanned = false
 
         this._startMs = null
         this._lastMs = null
@@ -52,12 +60,45 @@ class ValueSweep {
     }
 
 
+    takeColors(colorFunction) {
+        this._colorFunction = colorFunction
+        const values = this._values
+        this._finalColors = new Uint32Array(values.length)
+        for (let i = 0; i < values.length; ++i)
+            this._finalColors[i] = colorFunction(values[i])
+    }
+
+
+    // A transition covers the old picture whole, so its canvas never shows.
+    pickCanvas() {
+        const zeroColor = this._colorFunction(0)
+        if (this._overOldPicture)
+            return zeroColor
+        const counts = new Map()
+        let top = zeroColor
+        let topCount = 0
+        for (const c of this._finalColors) {
+            const n = (counts.get(c) || 0) + 1
+            counts.set(c, n)
+            if (n > topCount) {
+                top = c
+                topCount = n
+            }
+        }
+        return topCount >= this._backgroundShare * this._finalColors.length ? top : zeroColor
+    }
+
+
+    paints(i) { return this._overOldPicture || this._finalColors[i] !== this._canvas }
+
+
     numSteps() { return this._stepDistances.length }
 
 
     // A step is a distance from zero on the symlog axis, on either side.
-    // Zeros, when they are painted, get a distance past all the others.
-    groupPixelsBySteps(values, revealOrder) {
+    // Zeros get a distance past all the others.
+    groupPixelsBySteps() {
+        const values = this._values
         const half = this._numHistogramBins / 2
         const numValueDistances = half * this._stepsPerHistogramBin
         const zeroDistance = numValueDistances
@@ -71,13 +112,13 @@ class ValueSweep {
         const positive = new Uint8Array(numDistances)
         for (let i = 0; i < total; ++i) {
             const v = values[i]
+            if (!this.paints(i)) {
+                pixelDistance[i] = -1
+                continue
+            }
             if (v === 0) {
-                if (this._overOldPicture) {
-                    pixelDistance[i] = zeroDistance
-                    ++distanceCounts[zeroDistance]
-                }
-                else
-                    pixelDistance[i] = -1
+                pixelDistance[i] = zeroDistance
+                ++distanceCounts[zeroDistance]
                 continue
             }
             const dist = Math.min(numValueDistances - 1, Math.floor(Math.abs(this._axis.toUnits(v)) / unitsPerDistance))
@@ -110,7 +151,7 @@ class ValueSweep {
         const fill = this._stepStarts.slice(0, n)
         this._stepPixels = new Uint32Array(this._stepStarts[n])
         for (let k = 0; k < total; ++k) {
-            const i = revealOrder(k)
+            const i = this._revealOrder(k)
             if (pixelDistance[i] >= 0)
                 this._stepPixels[fill[stepOfDistance[pixelDistance[i]]]++] = i
         }
@@ -140,7 +181,11 @@ class ValueSweep {
     }
 
 
-    clearSeconds() { return this._overOldPicture ? Infinity : Math.min(this._clearSeconds, this._seconds / 4) }
+    clearSeconds() {
+        if (this._overOldPicture)
+            return Infinity
+        return this._fromCanvas ? 0 : Math.min(this._clearSeconds, this._seconds / 4)
+    }
 
 
     // After the last step, until everything that fades is down to the background.
@@ -177,18 +222,23 @@ class ValueSweep {
     setFadeSeconds(fadeSeconds) { this._fadeSeconds = fadeSeconds }
 
 
+    // Another canvas changes which pixels are painted, so the way is cut
+    // anew; the pixels it has passed by now count as passed, lit or not.
     setColorFunction(colorFunction) {
-        this._colorFunction = colorFunction
-        for (let k = 0; k < this._litPixels; ++k) {
-            const i = this._stepPixels[k]
-            this._colors[i] = colorFunction(this._values[i])
-        }
+        this.takeColors(colorFunction)
+        for (let i = 0; i < this._lit.length; ++i)
+            if (this._lit[i])
+                this._colors[i] = this._finalColors[i]
         this._repaintLit = true
-        const canvas = colorFunction(0)
-        if (canvas !== this._canvas) {
-            this._canvas = canvas
-            this._repaintAll = true
-        }
+        const canvas = this.pickCanvas()
+        if (canvas === this._canvas)
+            return
+        this._canvas = canvas
+        this._repaintAll = true
+        this.groupPixelsBySteps()
+        this.planTime()
+        this._currentStep = 0
+        this._replanned = true
     }
 
 
@@ -206,6 +256,10 @@ class ValueSweep {
         const n = this.numSteps()
         while (this._currentStep < n - 1 && this._stepEnds[this._currentStep] <= elapsed)
             ++this._currentStep
+        if (this._replanned) {
+            this._litPixels = this.pixelsDueAt(elapsed)
+            this._replanned = false
+        }
         this.lightUpTo(this.pixelsDueAt(elapsed))
 
         if (elapsed > this._seconds + this.tailSeconds())
@@ -256,11 +310,9 @@ class ValueSweep {
 
 
     lightUpTo(due) {
-        const cf = this._colorFunction
-        const values = this._values
         for (; this._litPixels < due; ++this._litPixels) {
             const i = this._stepPixels[this._litPixels]
-            this._colors[i] = cf(values[i])
+            this._colors[i] = this._finalColors[i]
             this._glow[i] = 1
             this._lit[i] = 1
             this._bitmap.setPixel(i, this._colors[i])
