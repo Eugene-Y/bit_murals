@@ -113,6 +113,8 @@ class FriendlyView {
         this._controller.nextPattern()
         this.onPatternChange()
         this.openLinkedPattern()
+        // A link opened where the page already is only changes the hash.
+        window.addEventListener("hashchange", () => { this.openLinkedPattern() })
         setTimeout(() => { if (!this._slideshowTouched) this.toggleSlideshow() }, 2000)
     }
 
@@ -988,7 +990,7 @@ class FriendlyView {
     async openLinkedPattern() {
         if (!location.hash.startsWith("#s="))
             return
-        this._slideshowTouched = true
+        this.stopSlideshow()
         const s = await this._importExport.parseLink(location.hash)
         if (!s)
             return
