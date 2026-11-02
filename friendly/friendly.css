@@ -12,6 +12,7 @@
     --text-dim: rgb(140, 140, 140);
     --text-on: rgb(40, 40, 40);
     --bad: rgb(230, 120, 90);
+    --control-height: 19px;
 }
 
 [hidden] { display: none !important; }
@@ -92,7 +93,7 @@ html, body {
 .buttons { display: grid; gap: 3px; }
 .transport { grid-template-columns: repeat(8, 1fr); }
 .sweep-row { display: flex; gap: 3px; }
-.sweep-row .btn { padding: 5px 12px; }
+.sweep-row .btn { padding: 0 12px; }
 .sweep-row .bar-slider { flex: 1; }
 .modes { grid-template-columns: repeat(5, 1fr); }
 .btn {
@@ -100,7 +101,8 @@ html, body {
     color: var(--text);
     background: var(--button);
     border: 0;
-    padding: 5px 0;
+    height: var(--control-height);
+    padding: 0;
     cursor: pointer;
     min-width: 0;
 }
@@ -118,7 +120,7 @@ html, body {
 
 .bar-slider {
     position: relative;
-    height: 19px;
+    height: var(--control-height);
     background: var(--track);
     cursor: ew-resize;
     user-select: none;
@@ -170,7 +172,7 @@ html, body {
 .generator .bar-slider .label { top: 1px; }
 .generator-head { display: flex; justify-content: space-between; align-items: center; }
 .generator-head .caption { color: var(--text-dim); }
-.generator-head .btn { padding: 2px 10px; }
+.generator-head .btn { padding: 0 10px; }
 
 .hint { color: rgb(110, 110, 110); }
 
