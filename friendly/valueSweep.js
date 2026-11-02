@@ -16,7 +16,10 @@
 class ValueSweep {
     constructor(values, revealOrder, numHistogramBins, colorFunction, bitmap, seconds, kept) {
         this._seconds = seconds
-        this._kept = kept
+        // A linear blend toward the background looks much brighter than its
+        // share: kept at 30% would read as a clear gray ghost of the picture.
+        this._keptGamma = 2.2
+        this.setKept(kept)
         this._maxSecondsPerStep = 1.5 // before stretching to the whole time
         this._stepsPerHistogramBin = 64
         this._timeByPixels = 0.7      // the rest of the time is split evenly between steps
@@ -149,7 +152,7 @@ class ValueSweep {
 
 
     setKept(kept) {
-        this._kept = kept
+        this._keptLevel = Math.pow(kept, this._keptGamma)
         this._repaintLit = true
     }
 
@@ -191,7 +194,7 @@ class ValueSweep {
         const glow = this._glow
         const lit = this._lit
         const colors = this._colors
-        const kept = this._kept
+        const kept = this._keptLevel
         const repaint = this._repaintLit
         this._repaintLit = false
         for (let i = 0; i < glow.length; ++i) {
