@@ -94,6 +94,9 @@ class PatternBitmap {
 
     getPixel(i) { return this._pixels[i] }
 
+    // The live buffer: it changes with the next paint.
+    getPixels() { return this._pixels }
+
     copyPixels() { return this._pixels.slice() }
 
 

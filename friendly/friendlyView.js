@@ -55,7 +55,7 @@ class FriendlyView {
         this._framingSides = [256, 300, 350, 400, 450, 512, 1024, 0] // 0 - as big as fits now
         this._framingId = 3
         this._patternRect = { x: 0, y: 0, side: 1 }
-        this._shownPercent = -1
+        this._shownStatus = ""
         this._buttons = {}
         this._toneSliders = {}
         this._paramSliders = new Map()
@@ -74,6 +74,10 @@ class FriendlyView {
         this._sweepSeconds = 8
         this._sweepFadeSeconds = 1
         this._sweepIsTransition = false
+        this._gifFps = 20
+        this._gifFramesPerYield = 4
+        this._gifHoldCs = 200
+        this._gifBusy = false
         this._staging = false
         this._slideShownAt = 0
         this._longestSweepFadeSeconds = 100
@@ -255,7 +259,12 @@ class FriendlyView {
                 this._sweep.setSeconds(v, performance.now())
         })
 
-        return this.section("sweep-row", this._buttons.sweep, keep.element(), time.element())
+        this._buttons.gif = this.button("gif", "save a gif of the pattern drawn from nothing the way a sweep draws it: "
+                                             + "with this time and keep, in the colors on screen, zeros last. "
+                                             + "with keep at ∞ it ends on the picture and holds it",
+                                        () => { this.saveGif() })
+
+        return this.section("sweep-row", this._buttons.sweep, keep.element(), time.element(), this._buttons.gif)
     }
 
 
@@ -492,14 +501,21 @@ class FriendlyView {
     }
 
 
-    syncStatus() {
+    // As on the classic page: ▶ drawing, ▷ the slideshow waits, | | paused.
+    statusText() {
         const p = this.statusPercent()
-        const playing = this._slideshow.isPlaying()
+        const drawing = !this._pattern.done() || this._staging || this._sweep !== null
+        const process = drawing ? "▶" : this._slideshow.isPlaying() ? "▷" : "| |"
         const percent = p >= 100 ? "100%" : `${p.toFixed(1)}%`
         const calculating = this._pattern.isStaging() ? "calculating " : ""
-        this._infoStatus.textContent =
-            `#${this._controller.getPatternNumber()}   ${calculating}${percent}   ${playing ? "slideshow" : ""}`
-        this._buttons.play.textContent = playing ? "pause" : "play"
+        return `${process}   #${this._controller.getPatternNumber()}   ${calculating}${percent}`
+    }
+
+
+    syncStatus() {
+        this._shownStatus = this.statusText()
+        this._infoStatus.textContent = this._shownStatus
+        this._buttons.play.textContent = this._slideshow.isPlaying() ? "pause" : "play"
     }
 
 
@@ -870,6 +886,43 @@ class FriendlyView {
     }
 
 
+    // A few frames at a time, so the page stays alive and the button can
+    // show how far it got.
+    async saveGif() {
+        if (this._gifBusy)
+            return
+        this._gifBusy = true
+        this.stopSlideshow()
+        const p = this._pattern
+        p.finishNow()
+        const [w, h] = p.getWidthAndHight()
+        const bitmap = new PatternBitmap(w, h)
+        const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), this._histogram.numBins(), bitmap, {
+            colorFunction  : this._colorController.getColorFunction(),
+            seconds        : this._sweepSeconds,
+            fadeSeconds    : this._sweepFadeSeconds,
+            overOldPicture : true
+        })
+        const gif = new GifEncoder(w, h)
+        const frameMs = 1000 / this._gifFps
+        const totalMs = 1000 * sweep.totalSeconds()
+        const button = this._buttons.gif
+        for (let t = 0, frame = 1; ; t += frameMs, ++frame) {
+            const running = sweep.step(t) !== null
+            gif.addFrame(bitmap.getPixels(), frameMs / 10)
+            if (!running)
+                break
+            if (frame % this._gifFramesPerYield === 0) {
+                button.textContent = `${Math.min(99, Math.round(100 * t / totalMs))}%`
+                await new Promise((resolve) => setTimeout(resolve))
+            }
+        }
+        this._importExport.saveGif(gif.finish(this._gifHoldCs))
+        button.textContent = "gif"
+        this._gifBusy = false
+    }
+
+
     save() {
         this.stopSlideshow()
         if (this._sweep) {
@@ -1075,10 +1128,7 @@ class FriendlyView {
         ctx.restore()
         this._noise.draw(g, g.width, g.height)
 
-        const p = this.statusPercent()
-        if (p !== this._shownPercent) {
-            this._shownPercent = p
+        if (this.statusText() !== this._shownStatus)
             this.syncStatus()
-        }
     }
 }

@@ -147,6 +147,9 @@ class ValueSweep {
     }
 
 
+    totalSeconds() { return this._seconds + this.tailSeconds() }
+
+
     // An infinite fade keeps it all: dt / Infinity is 0.
     glowLeftAfter(dt, fadeSeconds) {
         if (fadeSeconds > 0)

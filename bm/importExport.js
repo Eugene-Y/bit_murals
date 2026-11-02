@@ -26,6 +26,17 @@ class ImportExport {
     }
 
 
+    saveGif(bytes) {
+        this.updateDateString()
+        const url = URL.createObjectURL(new Blob([bytes], { type: "image/gif" }))
+        const a = document.createElement("a")
+        a.href = url
+        a.download = "bm_" + this._dateString + ".gif"
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+    }
+
+
     saveSettings(s){
         this.l.log("saving settings")
         let j = {}
