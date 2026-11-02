@@ -1,0 +1,50 @@
+name: Pages
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          path: site
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+          path: site/dev
+
+      # Pages caches files for 10 minutes; a per-commit query string makes a
+      # reload pick up new scripts as soon as the fresh HTML arrives.
+      - name: Stamp script and style URLs with the commit
+        run: |
+          versioned() { echo 's#(src|href)="([^":?]+\.(js|css))"#\1="\2?v='"$1"'"#g'; }
+          main_sha=$(git -C site rev-parse --short HEAD)
+          dev_sha=$(git -C site/dev rev-parse --short HEAD)
+          main_pages=$(find site -name '*.html' -not -path 'site/dev/*')
+          dev_pages=$(find site/dev -name '*.html')
+          sed -i -E "$(versioned "$main_sha")" $main_pages
+          sed -i -E -e "$(versioned "$dev_sha")" \
+            -e 's#<title>([^<]*)</title>#<title>\1 · dev '"$dev_sha"'</title>#' $dev_pages
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v5
