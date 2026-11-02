@@ -123,7 +123,7 @@ class ValueSweep {
 
     flashColor(i) {
         const c = this._finalColors[i]
-        if (c !== this._canvas)
+        if (!this._flashesAll || c !== this._canvas)
             return c
         return ColorPacking.brightness(c) > 127 ? this._darkGray : this._lightGray
     }
