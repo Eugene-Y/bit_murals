@@ -736,8 +736,8 @@ class FriendlyView {
     }
 
 
-    // The slideshow and the arrows: the pattern is calculated aside, then
-    // built up over the one on screen. At the start of history nothing is staged.
+    // Another pattern is calculated aside, then built up over the one on
+    // screen. Nothing is staged at the start of history or by a failed mutation.
     transitionTo(callToController) {
         callToController()
         if (this._pattern.isStaging()) {
@@ -766,15 +766,14 @@ class FriendlyView {
 
     randomize() {
         this._controller.eraseMutationBookmark()
-        this._controller.nextPatternWithRandomizedParams()
-        this.onPatternChange()
+        this.transitionTo(() => this._controller.nextPatternWithRandomizedParams(true))
+        this.syncGeneratorSliders()
     }
 
 
     mutate(opt) {
         this._controller.bookmarkPattern()
-        if (this._controller.nextPatternWithMutatedFormula(opt))
-            this.onPatternChange()
+        this.transitionTo(() => this._controller.nextPatternWithMutatedFormula(opt, true))
     }
 
 

@@ -138,15 +138,15 @@ class Controller {
     }
 
 
-    nextPatternWithRandomizedParams(){
+    nextPatternWithRandomizedParams(staged = false){
         this.l.logc("next pattern from randomized params")
         this._paramController.randomizeParams()
-        this.nextPattern()
+        this.nextPattern(true, staged)
         this.l.loge()
     }
 
 
-    nextPatternWithMutatedFormula(opt) {
+    nextPatternWithMutatedFormula(opt, staged = false) {
         this.l.clear()
         this.l.logg("next pattern from mutated")
         // TODO если нажать prev во время отрисовки и пока в лог валятся сообщения, 
@@ -160,7 +160,10 @@ class Controller {
             this.updateCurrentPanZoomAndDrawingOptionsRecord()
             this.goToLastHistoryItem()
             this.setImprovedDrawingOptions()
-            this.setCurrentFormulaToPattern()
+            if (staged)
+                this.stageCurrentFormulaInPattern()
+            else
+                this.setCurrentFormulaToPattern()
             this.addCurrentPatternToHistory()
             ++this._currentHistoryPos
         }
