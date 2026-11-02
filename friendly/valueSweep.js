@@ -3,9 +3,9 @@
 
 
 // Runs over the values from zero outward, negative and positive together,
-// lighting up the pixels in turn and leaving a trail that fades down to the
-// kept brightness: at 0 the passed values go dark, at 1 the picture builds
-// up. Zeros are left out: they'd usually flood the picture.
+// lighting up the pixels in turn and leaving a trail that fades out over the
+// fade time; with an infinite one the picture builds up. Zeros are left out:
+// they'd usually flood the picture.
 //
 // The way is cut into steps much finer than the histogram's bins, so a narrow
 // band is still passed through rather than flashed at once. Only non-empty
@@ -14,17 +14,14 @@
 // sparse stretches between groups of values would leave the picture dark.
 // Inside a step, pixels light up in the pattern's reveal order, like it emerged.
 class ValueSweep {
-    constructor(values, revealOrder, numHistogramBins, colorFunction, bitmap, seconds, kept) {
+    constructor(values, revealOrder, numHistogramBins, colorFunction, bitmap, seconds, fadeSeconds) {
         this._seconds = seconds
-        // A linear blend toward the background looks much brighter than its
-        // share: kept at 30% would read as a clear gray ghost of the picture.
-        this._keptGamma = 2.2
-        this.setKept(kept)
+        this._fadeSeconds = fadeSeconds
         this._maxSecondsPerStep = 1.5 // before stretching to the whole time
         this._stepsPerHistogramBin = 64
         this._timeByPixels = 0.7      // the rest of the time is split evenly between steps
-        this._trailSeconds = 1        // the trail fades to almost the kept brightness over this
-        this._trailLeft = 0.03        // what "almost" is
+        this._clearSeconds = 1        // the picture from before the sweep fades out over this
+        this._fadedLeft = 0.03        // the glow a pixel has left when it counts as faded
         this._settledGlow = 1 / 512   // below a gray level, so the pixel can stop changing
 
         this._axis = new SymLogScale()
@@ -35,7 +32,6 @@ class ValueSweep {
         this.groupPixelsBySteps(values, revealOrder)
         this.planTime()
 
-        // The picture from before the sweep fades out like a trail that keeps nothing.
         this._colors = bitmap.copyPixels()
         this._glow = new Float32Array(values.length).fill(1)
         this._lit = new Uint8Array(values.length)
@@ -128,13 +124,21 @@ class ValueSweep {
     }
 
 
-    trailSeconds() { return Math.min(this._trailSeconds, this._seconds / 4) }
+    clearSeconds() { return Math.min(this._clearSeconds, this._seconds / 4) }
 
 
-    glowLeftAfter(dt) {
-        const trail = this.trailSeconds()
-        if (trail > 0)
-            return Math.pow(this._trailLeft, dt / trail)
+    // After the last step, until everything that fades is down to the background.
+    tailSeconds() {
+        const fade = this._fadeSeconds < Infinity ? this._fadeSeconds : 0
+        const fadesToSettle = Math.log(this._settledGlow) / Math.log(this._fadedLeft)
+        return fadesToSettle * Math.max(this.clearSeconds(), fade)
+    }
+
+
+    // An infinite fade keeps it all: dt / Infinity is 0.
+    glowLeftAfter(dt, fadeSeconds) {
+        if (fadeSeconds > 0)
+            return Math.pow(this._fadedLeft, dt / fadeSeconds)
         return dt > 0 ? 0 : 1
     }
 
@@ -151,10 +155,7 @@ class ValueSweep {
     }
 
 
-    setKept(kept) {
-        this._keptLevel = Math.pow(kept, this._keptGamma)
-        this._repaintLit = true
-    }
+    setFadeSeconds(fadeSeconds) { this._fadeSeconds = fadeSeconds }
 
 
     setColorFunction(colorFunction) {
@@ -175,7 +176,7 @@ class ValueSweep {
         const dt = (nowMs - this._lastMs) / 1000
         this._lastMs = nowMs
         if (dt > 0 || this._repaintLit)
-            this.fade(this.glowLeftAfter(dt))
+            this.fade(dt)
 
         const elapsed = (nowMs - this._startMs) / 1000
         const n = this.numSteps()
@@ -183,30 +184,34 @@ class ValueSweep {
             ++this._currentStep
         this.lightUpTo(this.pixelsDueAt(elapsed))
 
-        if (elapsed > this._seconds + this.trailSeconds())
+        if (elapsed > this._seconds + this.tailSeconds())
             return null
         return this._stepBins[this._currentStep]
     }
 
 
-    // keep: the share of the glow left after this frame.
-    fade(keep) {
+    // Lit pixels fade over the fade time, the ones left from before the sweep
+    // over the clear time.
+    fade(dt) {
+        const keepLit = this.glowLeftAfter(dt, this._fadeSeconds)
+        const keepOld = this.glowLeftAfter(dt, this.clearSeconds())
         const glow = this._glow
         const lit = this._lit
         const colors = this._colors
-        const kept = this._keptLevel
         const repaint = this._repaintLit
         this._repaintLit = false
         for (let i = 0; i < glow.length; ++i) {
             let g = glow[i]
-            if (g === 0 && !(repaint && lit[i]))
+            if (g === 0)
+                continue
+            const keep = lit[i] ? keepLit : keepOld
+            if (keep === 1 && !(repaint && lit[i]))
                 continue
             g *= keep
             if (g < this._settledGlow)
                 g = 0
             glow[i] = g
-            const floor = lit[i] ? kept : 0
-            this._bitmap.setPixelBlended(i, colors[i], floor + (1 - floor) * g)
+            this._bitmap.setPixelBlended(i, colors[i], g)
         }
     }
 

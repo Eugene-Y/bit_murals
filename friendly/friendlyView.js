@@ -72,7 +72,8 @@ class FriendlyView {
         this._sweepWanted = false
         this._sweepBins = []
         this._sweepSeconds = 8
-        this._sweepKept = 0
+        this._sweepFadeSeconds = 1
+        this._longestSweepFadeSeconds = 100
         this._minWindowDecades = 1e-4
         this.l = new Logger("Friendly View")
     }
@@ -217,17 +218,24 @@ class FriendlyView {
                                                  + "with a fading trail. starts once the pattern is done  [p]",
                                           () => { this.toggleSweep() })
 
-        const kept = new BarSlider("keep", new LinearScale(0, 1))
-        kept.setDefaultValue(0)
-        kept.setValue(this._sweepKept)
-        kept.setFineStep(0.002, 0.05)
-        kept.setReadoutFormatter((v) => `${Math.round(100 * v)}%`)
-        kept.setTooltip("brightness the passed values settle at. 0: they fade away, "
-                      + "100%: they stay and the picture builds up")
-        kept.onChange((v) => {
-            this._sweepKept = v
+        // Past the longest fade the slider goes on a little, to give ∞ a stretch
+        // a tap can hit.
+        const longest = this._longestSweepFadeSeconds
+        const keep = new BarSlider("keep", new LogScale(-1, Math.log10(longest) + 0.15))
+        const fadeSecondsAt = (v) => v > longest ? Infinity : v
+        keep.setDefaultValue(this._sweepFadeSeconds)
+        keep.setValue(this._sweepFadeSeconds)
+        keep.setFineStep(0.005, 0.05)
+        keep.setReadoutFormatter((v) => {
+            const s = fadeSecondsAt(v)
+            return s === Infinity ? "∞" : `${Number(s.toPrecision(2))} s`
+        })
+        keep.setTooltip("how long the passed values take to fade out. "
+                      + "at the right end, ∞, they stay and the picture builds up")
+        keep.onChange((v) => {
+            this._sweepFadeSeconds = fadeSecondsAt(v)
             if (this._sweep)
-                this._sweep.setKept(v)
+                this._sweep.setFadeSeconds(this._sweepFadeSeconds)
         })
 
         const time = new BarSlider("time", new LinearScale(0, 16))
@@ -244,7 +252,7 @@ class FriendlyView {
                 this._sweep.setSeconds(v, performance.now())
         })
 
-        return this.section("sweep-row", this._buttons.sweep, kept.element(), time.element())
+        return this.section("sweep-row", this._buttons.sweep, keep.element(), time.element())
     }
 
 
@@ -561,7 +569,7 @@ class FriendlyView {
         const p = this._pattern
         const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), h.numBins(),
                                      this.sweepColorFunction(), p.getBitmap(),
-                                     this._sweepSeconds, this._sweepKept)
+                                     this._sweepSeconds, this._sweepFadeSeconds)
         this._sweep = sweep.numSteps() ? sweep : null
         this.syncSweepButton()
     }
@@ -596,7 +604,7 @@ class FriendlyView {
         this.stopSweep()
         if (!wasRunning)
             return
-        if (this._sweepKept >= 0.995) // what the readout shows as 100%
+        if (this._sweepFadeSeconds === Infinity)
             this._recolorPending = true
         else
             this._pattern.startRedraw()
