@@ -100,15 +100,19 @@ class PatternBitmap {
     copyPixels() { return this._pixels.slice() }
 
 
-    // level 1 is the color itself, 0 the background.
-    setPixelBlended(i, packedColor, level) {
-        const bg = this._background
-        const r = packedColor & 0xff
-        const g = (packedColor >>> 8) & 0xff
-        const b = (packedColor >>> 16) & 0xff
-        this._pixels[i] = ColorPacking.rgba(Math.round(bg + (r - bg) * level),
-                                            Math.round(bg + (g - bg) * level),
-                                            Math.round(bg + (b - bg) * level))
+    fill(packedColor) {
+        this._pixels.fill(packedColor)
+        this._dirty = true
+    }
+
+
+    // t 0 is the from color, 1 the to color.
+    setPixelBetween(i, from, to, t) {
+        const mix = (shift) => {
+            const a = (from >>> shift) & 0xff
+            return Math.round(a + (((to >>> shift) & 0xff) - a) * t)
+        }
+        this._pixels[i] = ColorPacking.rgba(mix(0), mix(8), mix(16))
         this._dirty = true
     }
 

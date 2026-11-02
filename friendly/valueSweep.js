@@ -32,6 +32,9 @@ class ValueSweep {
         this._numHistogramBins = numHistogramBins
         this._bitmap = bitmap
         this._colorFunction = look.colorFunction
+        // What the pattern looks like where it is all zero: dark in plain
+        // mode, but bright in the negative, where the values are the dark ones.
+        this._canvas = look.colorFunction(0)
         this._values = values
         this.groupPixelsBySteps(values, revealOrder)
         this.planTime()
@@ -40,6 +43,7 @@ class ValueSweep {
         this._glow = new Float32Array(values.length).fill(1)
         this._lit = new Uint8Array(values.length)
         this._repaintLit = false
+        this._repaintAll = false
 
         this._startMs = null
         this._lastMs = null
@@ -180,6 +184,11 @@ class ValueSweep {
             this._colors[i] = colorFunction(this._values[i])
         }
         this._repaintLit = true
+        const canvas = colorFunction(0)
+        if (canvas !== this._canvas) {
+            this._canvas = canvas
+            this._repaintAll = true
+        }
     }
 
 
@@ -190,7 +199,7 @@ class ValueSweep {
             this._startMs = this._lastMs = nowMs
         const dt = (nowMs - this._lastMs) / 1000
         this._lastMs = nowMs
-        if (dt > 0 || this._repaintLit)
+        if (dt > 0 || this._repaintLit || this._repaintAll)
             this.fade(dt)
 
         const elapsed = (nowMs - this._startMs) / 1000
@@ -205,30 +214,33 @@ class ValueSweep {
     }
 
 
-    // Lit pixels fade over the fade time, the ones left from before the sweep
-    // over the clear time.
+    // Lit pixels fade into the canvas over the fade time, the ones left from
+    // before the sweep over the clear time. Settled pixels are only repainted
+    // when the canvas itself changes.
     fade(dt) {
         const keepLit = this.glowLeftAfter(dt, this._fadeSeconds)
         const keepOld = this.glowLeftAfter(dt, this.clearSeconds())
-        const repaint = this._repaintLit
-        this._repaintLit = false
-        if (keepLit === 1 && keepOld === 1 && !repaint)
+        const repaintAll = this._repaintAll
+        const repaintLit = this._repaintLit || repaintAll
+        this._repaintLit = this._repaintAll = false
+        if (keepLit === 1 && keepOld === 1 && !repaintLit)
             return
         const glow = this._glow
         const lit = this._lit
         const colors = this._colors
+        const canvas = this._canvas
         for (let i = 0; i < glow.length; ++i) {
             let g = glow[i]
-            if (g === 0)
+            if (g === 0 && !repaintAll)
                 continue
             const keep = lit[i] ? keepLit : keepOld
-            if (keep === 1 && !(repaint && lit[i]))
+            if (keep === 1 && !(lit[i] ? repaintLit : repaintAll))
                 continue
             g *= keep
             if (g < this._settledGlow)
                 g = 0
             glow[i] = g
-            this._bitmap.setPixelBlended(i, colors[i], g)
+            this._bitmap.setPixelBetween(i, canvas, colors[i], g)
         }
     }
 

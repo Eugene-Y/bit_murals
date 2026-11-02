@@ -897,9 +897,11 @@ class FriendlyView {
         const p = this._pattern
         p.finishNow()
         const [w, h] = p.getWidthAndHight()
+        const colorFunction = this._colorController.getColorFunction()
         const bitmap = new PatternBitmap(w, h)
+        bitmap.fill(colorFunction(0))
         const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), this._histogram.numBins(), bitmap, {
-            colorFunction  : this._colorController.getColorFunction(),
+            colorFunction  : colorFunction,
             seconds        : this._sweepSeconds,
             fadeSeconds    : this._sweepFadeSeconds,
             overOldPicture : true
