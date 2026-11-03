@@ -124,13 +124,13 @@ class FriendlyView {
     buildPanel(panel) {
         panel.append(
             this.buildHeader(),
-            this.buildUserFunctions(),
             this.buildInfo(),
             this.buildTransport(),
             this.buildSweep(),
             this.buildModes(),
             this.buildTone(),
             this.buildHints(),
+            this.buildUserFunctions(),
             this.buildGeneratorSliders())
     }
 
