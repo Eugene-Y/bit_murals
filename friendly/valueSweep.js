@@ -8,9 +8,10 @@
 // The canvas follows the finished picture. A trail runs over the picture's
 // own background, the color most of it has, and the pixels of that color
 // flash in the contrasting gray, else the wave would pass them unseen. A
-// build-up starts from the gray contrasting with the picture, like a
+// build-up starts from the gray contrasting with the nonzero pixels, like a
 // transition from a contrasting slide, and the pixels already in that gray are
-// left out. Over the old picture, as a transition from it, every pixel is
+// left out. The texture is in the nonzero values, the zeros are one step: in a
+// picture of the two grays, a canvas set against the zeros would swallow it all. Over the old picture, as a transition from it, every pixel is
 // painted and the old one doesn't fade: it is covered.
 //
 // The way is cut into steps much finer than the histogram's bins, so a narrow
@@ -84,7 +85,7 @@ class ValueSweep {
         if (this._overOldPicture)
             this._canvas = zeroColor
         else if (this.buildsUp())
-            this._canvas = this.lightShare() > 0.5 ? this._darkGray : this._lightGray
+            this._canvas = this.nonzeroLightShare() > 0.5 ? this._darkGray : this._lightGray
         else {
             const [top, share] = this.mostCommonColor()
             this._flashesAll = share >= this._backgroundShare
@@ -93,12 +94,21 @@ class ValueSweep {
     }
 
 
-    lightShare() {
+    // Of all pixels when every value is zero.
+    nonzeroLightShare() {
+        const values = this._values
+        const colors = this._finalColors
+        const allZero = !values.some(v => v !== 0)
         let light = 0
-        for (const c of this._finalColors)
-            if (ColorPacking.brightness(c) > 127)
+        let counted = 0
+        for (let i = 0; i < colors.length; ++i) {
+            if (values[i] === 0 && !allZero)
+                continue
+            ++counted
+            if (ColorPacking.brightness(colors[i]) > 127)
                 ++light
-        return light / this._finalColors.length
+        }
+        return light / counted
     }
 
 
@@ -175,6 +185,7 @@ class ValueSweep {
             this._stepDistances.push(dist)
             const binDistance = Math.floor(dist / this._stepsPerHistogramBin)
             const bins = []
+            if (dist === zeroDistance) bins.push(half - 1, half)
             if (negative[dist]) bins.push(half - 1 - binDistance)
             if (positive[dist]) bins.push(half + binDistance)
             this._stepBins.push(bins)
