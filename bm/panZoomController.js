@@ -54,7 +54,21 @@ class PanZoomController {
             newZoom = this.calculateSlowZoom(amount)
         else
             newZoom = this.calculateNormalZoom(amount)
+        const zoomed = this.zoomPatternTo(x, y, oX, oY, newZoom)
+        this.l.loge()
+        return zoomed
+    }
 
+
+    // ratio over 1 zooms out
+    zoomPatternBy(x, y, oX, oY, ratio) {
+        return this.zoomPatternTo(x, y, oX, oY, this._pattern.getZoom() * ratio)
+    }
+
+
+    // The point at x, y stays where it is.
+    zoomPatternTo(x, y, oX, oY, newZoom) {
+        const currZoom = this._pattern.getZoom()
         if (newZoom == currZoom) {
             this.l.log("same zoom! :/")
             return false
@@ -71,7 +85,6 @@ class PanZoomController {
         const dX = -dMarginX * xPortion
         const dY = -dMarginY * yPortion
         this._pattern.shiftOXYby(dX, dY)
-        this.l.loge()
         return true
     }
 

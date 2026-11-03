@@ -413,7 +413,7 @@ class FriendlyView {
 
     buildHints() {
         return this.text("hint",
-            "pattern: drag to pan · wheel to zoom (shift ×2, ctrl slow) · 2× click resets the view, shift+2× click to 0, 0, 1")
+            "pattern: drag to pan · wheel or pinch to zoom (shift ×2, ctrl slow) · 2× click or tap resets the view, shift+2× click to 0, 0, 1")
     }
 
 
@@ -1090,34 +1090,49 @@ class FriendlyView {
     }
 
 
+    // One finger or the mouse pans, two pinch: the middle between them pans,
+    // their distance zooms around it.
     listenToPatternArea() {
         const area = this._area
-        let last = null
+        const held = new Map()
+        const tap = new DoubleTap(() => { this.resetFraming() })
         area.addEventListener("pointerdown", (e) => {
             if (!this.pointInPattern(e.clientX, e.clientY)[2])
                 return
             area.setPointerCapture(e.pointerId)
-            last = [e.clientX, e.clientY]
+            held.set(e.pointerId, [e.clientX, e.clientY])
+            if (e.pointerType !== "mouse")
+                tap.down(e, held.size)
         })
         area.addEventListener("pointermove", (e) => {
             const [x, y, inside] = this.pointInPattern(e.clientX, e.clientY)
             if (inside)
                 this.showValueAt(Math.floor(x), Math.floor(y))
-            if (!last || !area.hasPointerCapture(e.pointerId))
+            if (!held.has(e.pointerId))
                 return
-            const dx = e.clientX - last[0]
-            const dy = e.clientY - last[1]
-            if (!dx && !dy)
+            tap.move(e)
+            const [before, after] = this.fingersMoving(held, e)
+            const dx = after.x - before.x
+            const dy = after.y - before.y
+            const ratio = before.spread && after.spread ? before.spread / after.spread : 1
+            if (!dx && !dy && ratio === 1)
                 return
-            last = [e.clientX, e.clientY]
             this.stopSlideshow()
             this._panZoom.panPatternBy(dx, dy)
+            if (ratio !== 1) {
+                const [px, py] = this.pointInPattern(after.x, after.y)
+                this._panZoom.zoomPatternBy(px, py, 0, 0, ratio)
+            }
             this.onFramingChange()
         })
-        area.addEventListener("pointerup", (e) => {
-            last = null
-            area.releasePointerCapture(e.pointerId)
-        })
+        const release = (e) => {
+            if (!held.delete(e.pointerId))
+                return
+            if (e.type === "pointerup" && e.pointerType !== "mouse")
+                tap.up(e)
+        }
+        area.addEventListener("pointerup", release)
+        area.addEventListener("pointercancel", release)
         area.addEventListener("wheel", (e) => {
             e.preventDefault()
             const [x, y, inside] = this.pointInPattern(e.clientX, e.clientY)
@@ -1130,10 +1145,30 @@ class FriendlyView {
         area.addEventListener("dblclick", (e) => {
             if (!this.pointInPattern(e.clientX, e.clientY)[2])
                 return
-            const f = e.shiftKey ? new Framing() : this._controller.getInitialFramingForCurrentPattern()
-            if (this._panZoom.setFraming(f))
-                this.onFramingChange()
+            this.resetFraming(e.shiftKey ? new Framing() : null)
         })
+    }
+
+
+    // Takes the moving pointer's new place; returns the middle of the first
+    // two held and their spread (0 for one), before the move and after it.
+    fingersMoving(held, e) {
+        const measure = () => {
+            const [a, b] = held.values()
+            if (!b)
+                return { x: a[0], y: a[1], spread: 0 }
+            return { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2, spread: Math.hypot(a[0] - b[0], a[1] - b[1]) }
+        }
+        const before = measure()
+        held.set(e.pointerId, [e.clientX, e.clientY])
+        return [before, measure()]
+    }
+
+
+    resetFraming(framing = null) {
+        const f = framing || this._controller.getInitialFramingForCurrentPattern()
+        if (this._panZoom.setFraming(f))
+            this.onFramingChange()
     }
 
 
