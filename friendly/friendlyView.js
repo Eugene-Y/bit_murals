@@ -695,6 +695,9 @@ class FriendlyView {
 
 
     // [the screen, the slide in the colors of colorFunction], from a sample.
+    // The slide counts by its nonzero pixels: they build it up step by step,
+    // the zeros come in one at the end, and a slide mostly of zeros would
+    // otherwise build its texture in the screen's own shade.
     mostlyLight(colorFunction) {
         const values = this._pattern.getValues()
         const bitmap = this._pattern.getBitmap()
@@ -702,12 +705,20 @@ class FriendlyView {
         const isLight = (c) => ColorPacking.brightness(c) > 127
         let lightOnScreen = 0
         let lightInSlide = 0
+        let lightZeros = 0
+        let zeros = 0
         for (let j = 0; j < picks; ++j) {
             const i = Math.floor(Math.random() * values.length)
             if (isLight(bitmap.getPixel(i))) ++lightOnScreen
-            if (isLight(colorFunction(values[i]))) ++lightInSlide
+            const light = isLight(colorFunction(values[i]))
+            if (values[i] !== 0) lightInSlide += light
+            else {
+                ++zeros
+                lightZeros += light
+            }
         }
-        return [lightOnScreen > picks / 2, lightInSlide > picks / 2]
+        const slideIsLight = zeros < picks ? lightInSlide > (picks - zeros) / 2 : lightZeros > picks / 2
+        return [lightOnScreen > picks / 2, slideIsLight]
     }
 
 
