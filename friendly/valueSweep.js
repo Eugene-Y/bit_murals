@@ -7,11 +7,13 @@
 // fade time; with an infinite one the picture builds up. Zeros come last.
 // The canvas follows the finished picture. A trail runs over the picture's
 // own background, the color most of it has, and the pixels of that color
-// flash in the contrasting gray, else the wave would pass them unseen. A
+// flash in their colors of the other negative, else the wave would pass them
+// unseen; where those are too close to it, in the contrasting gray. A
 // build-up starts from the gray contrasting with the nonzero pixels, like a
 // transition from a contrasting slide, and the pixels already in that gray are
 // left out. The texture is in the nonzero values, the zeros are one step: in a
-// picture of the two grays, a canvas set against the zeros would swallow it all. Over the old picture, as a transition from it, every pixel is
+// picture of the two grays, a canvas set against the zeros would swallow it
+// all. Over the old picture, as a transition from it, every pixel is
 // painted and the old one doesn't fade: it is covered.
 //
 // The way is cut into steps much finer than the histogram's bins, so a narrow
@@ -21,7 +23,7 @@
 // sparse stretches between groups of values would leave the picture dark.
 // Inside a step, pixels light up in the pattern's reveal order, like it emerged.
 class ValueSweep {
-    // look: { colorFunction, seconds, fadeSeconds, overOldPicture, fromCanvas }
+    // look: { colorFunction, flashColorFunction, seconds, fadeSeconds, overOldPicture, fromCanvas }
     // fromCanvas: the bitmap starts as the bare canvas, not the picture on it.
     constructor(values, revealOrder, numHistogramBins, bitmap, look) {
         this._seconds = look.seconds
@@ -37,13 +39,14 @@ class ValueSweep {
         this._backgroundShare = 1 / 3 // a color covering less isn't the background; zero's color is
         this._darkGray = ColorPacking.gray(40)
         this._lightGray = ColorPacking.gray(240)
+        this._minFlashContrast = 64   // in brightness, 0 … 255
 
         this._axis = new SymLogScale()
         this._numHistogramBins = numHistogramBins
         this._bitmap = bitmap
         this._values = values
         this._revealOrder = revealOrder
-        this.takeColors(look.colorFunction)
+        this.takeColors(look.colorFunction, look.flashColorFunction)
         this.chooseCanvas()
         this.groupPixelsBySteps()
         this.planTime()
@@ -66,8 +69,9 @@ class ValueSweep {
     }
 
 
-    takeColors(colorFunction) {
+    takeColors(colorFunction, flashColorFunction) {
         this._colorFunction = colorFunction
+        this._flashColorFunction = flashColorFunction
         const values = this._values
         this._finalColors = new Uint32Array(values.length)
         for (let i = 0; i < values.length; ++i)
@@ -135,6 +139,9 @@ class ValueSweep {
         const c = this._finalColors[i]
         if (!this._flashesAll || c !== this._canvas)
             return c
+        const flash = this._flashColorFunction(this._values[i])
+        if (Math.abs(ColorPacking.brightness(flash) - ColorPacking.brightness(c)) >= this._minFlashContrast)
+            return flash
         return ColorPacking.brightness(c) > 127 ? this._darkGray : this._lightGray
     }
 
@@ -275,8 +282,8 @@ class ValueSweep {
     }
 
 
-    setColorFunction(colorFunction) {
-        this.takeColors(colorFunction)
+    setColorFunction(colorFunction, flashColorFunction) {
+        this.takeColors(colorFunction, flashColorFunction)
         this.replan()
     }
 

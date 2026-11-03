@@ -622,8 +622,10 @@ class FriendlyView {
     runSweep(isTransition) {
         this._sweepIsTransition = isTransition
         const p = this._pattern
+        const [colorFunction, flashColorFunction] = this.sweepColorFunctions()
         const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), this._histogram.numBins(), p.getBitmap(), {
-            colorFunction  : this.sweepColorFunction(),
+            colorFunction,
+            flashColorFunction,
             seconds        : this._sweepSeconds,
             fadeSeconds    : isTransition ? Infinity : this._sweepFadeSeconds,
             overOldPicture : isTransition
@@ -634,13 +636,16 @@ class FriendlyView {
     }
 
 
-    // The user's trail is in the color mode as it is, without the window.
-    sweepColorFunction() {
+    // [the colors, the flashes: the same colors in the other negative]. The
+    // user's trail is in the color mode as it is, without the window.
+    sweepColorFunctions(keepsWindow = this._sweepIsTransition) {
         const cc = this._colorController
         const d = cc.getDrawingOptions().copy()
-        if (!this._sweepIsTransition)
+        if (!keepsWindow)
             d.window = false
-        return cc.makeColorFunction(d)
+        const flipped = d.copy()
+        flipped.negative = !d.negative
+        return [cc.makeColorFunction(d), cc.makeColorFunction(flipped)]
     }
 
 
@@ -944,10 +949,11 @@ class FriendlyView {
         const p = this._pattern
         p.finishNow()
         const [w, h] = p.getWidthAndHight()
-        const colorFunction = this._colorController.getColorFunction()
+        const [colorFunction, flashColorFunction] = this.sweepColorFunctions(true)
         const bitmap = new PatternBitmap(w, h)
         const sweep = new ValueSweep(p.getValues(), (k) => p.pixelIndex(k), this._histogram.numBins(), bitmap, {
-            colorFunction  : colorFunction,
+            colorFunction,
+            flashColorFunction,
             seconds        : this._sweepSeconds,
             fadeSeconds    : this._sweepFadeSeconds,
             overOldPicture : false,
@@ -1256,7 +1262,7 @@ class FriendlyView {
         }
         if (this._recolorPending) {
             if (this._sweep)
-                this._sweep.setColorFunction(this.sweepColorFunction())
+                this._sweep.setColorFunction(...this.sweepColorFunctions())
             else
                 this._pattern.recolor()
             this._recolorPending = false
