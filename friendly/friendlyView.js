@@ -74,6 +74,8 @@ class FriendlyView {
         this._sweepSeconds = 4
         this._sweepFadeSeconds = 1
         this._sweepIsTransition = false
+        this._sweepSteps = 0
+        this._showsSweepSteps = location.pathname.includes("/dev/") || ["localhost", "127.0.0.1"].includes(location.hostname)
         this._gifFps = 20
         this._gifFramesPerYield = 4
         this._gifHoldCs = 200
@@ -518,8 +520,12 @@ class FriendlyView {
         const process = drawing ? "▶" : this._slideshow.isPlaying() ? "▷" : "▮▮"
         const percent = p >= 100 ? "100%" : `${p.toFixed(1)}%`
         const calculating = this._pattern.isStaging() ? "calculating " : ""
-        return `${process}   #${this._controller.getPatternNumber()}   ${calculating}${percent}`
+        const steps = this._showsSweepSteps ? `   ${FriendlyView.scientific(this._sweepSteps)} steps` : ""
+        return `${process}   #${this._controller.getPatternNumber()}   ${calculating}${percent}${steps}`
     }
+
+
+    static scientific(n) { return n.toExponential(1).replace(".0e", "e").replace("e+", "e") }
 
 
     syncStatus() {
@@ -622,7 +628,8 @@ class FriendlyView {
             fadeSeconds    : isTransition ? Infinity : this._sweepFadeSeconds,
             overOldPicture : isTransition
         })
-        this._sweep = sweep.numSteps() ? sweep : null
+        this._sweepSteps = sweep.numSteps()
+        this._sweep = this._sweepSteps ? sweep : null
         this.syncSweepButton()
     }
 
